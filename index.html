@@ -1,0 +1,165 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+    <title>Bean Buddy</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link href="https://fonts.googleapis.com/css2?family=Press+Start+2P&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+    <!-- Title Bar -->
+    <div id="title-bar">
+        <span class="title-text">Bean Buddy</span>
+        <div class="coin-display">
+            <span class="coin-icon">&#9733;</span>
+            <span id="coin-count">0</span>
+        </div>
+    </div>
+
+    <!-- Main Game Screen -->
+    <div id="game-screen">
+        <!-- Stat Bars -->
+        <div id="stat-bars">
+            <div class="stat-row">
+                <span class="stat-label">HUNGER</span>
+                <div class="stat-bar-bg"><div class="stat-bar-fill" id="hunger-bar"></div></div>
+                <span class="stat-value" id="hunger-val">100</span>
+            </div>
+            <div class="stat-row">
+                <span class="stat-label">THIRST</span>
+                <div class="stat-bar-bg"><div class="stat-bar-fill" id="thirst-bar"></div></div>
+                <span class="stat-value" id="thirst-val">100</span>
+            </div>
+            <div class="stat-row">
+                <span class="stat-label">SOCIAL</span>
+                <div class="stat-bar-bg"><div class="stat-bar-fill" id="social-bar"></div></div>
+                <span class="stat-value" id="social-val">100</span>
+            </div>
+            <div class="stat-row">
+                <span class="stat-label">FUN</span>
+                <div class="stat-bar-bg"><div class="stat-bar-fill" id="fun-bar"></div></div>
+                <span class="stat-value" id="fun-val">100</span>
+            </div>
+        </div>
+
+        <!-- Room Canvas -->
+        <canvas id="room-canvas" width="400" height="350"></canvas>
+
+        <!-- Status Text -->
+        <div id="status-text">Your bean is chillin'!</div>
+
+        <!-- Notification Popup -->
+        <div id="notification" class="hidden">
+            <span id="notification-text"></span>
+            <button id="notification-ok">OK!</button>
+        </div>
+    </div>
+
+    <!-- Action Buttons -->
+    <div id="action-bar">
+        <button class="action-btn" id="btn-feed" data-action="feed">
+            <span class="btn-icon">&#127828;</span>
+            <span class="btn-label">Feed</span>
+        </button>
+        <button class="action-btn" id="btn-beer" data-action="beer">
+            <span class="btn-icon">&#127866;</span>
+            <span class="btn-label">Beer</span>
+        </button>
+        <button class="action-btn" id="btn-friends" data-action="friends">
+            <span class="btn-icon">&#129309;</span>
+            <span class="btn-label">Friends</span>
+        </button>
+        <button class="action-btn" id="btn-disc" data-action="disc">
+            <span class="btn-icon">&#129359;</span>
+            <span class="btn-label">Disc Golf</span>
+        </button>
+    </div>
+
+    <!-- Decorate Toolbar (shown in decorate mode) -->
+    <div id="decorate-bar" class="hidden">
+        <div id="decorate-inventory"></div>
+        <div id="decorate-controls">
+            <button class="deco-btn" id="deco-rotate">Spin</button>
+            <button class="deco-btn" id="deco-flip">Flip</button>
+            <button class="deco-btn" id="deco-smaller">Size -</button>
+            <button class="deco-btn" id="deco-bigger">Size +</button>
+            <button class="deco-btn deco-done" id="deco-done">Done</button>
+        </div>
+        <div id="decorate-hint">Tap an item, then tap the room to place it. Drag to reposition.</div>
+    </div>
+
+    <!-- Navigation -->
+    <div id="nav-bar">
+        <button class="nav-btn active" id="nav-room" data-screen="room">Room</button>
+        <button class="nav-btn" id="nav-shop" data-screen="shop">Shop</button>
+        <button class="nav-btn" id="nav-deco" data-screen="decorate">Decorate</button>
+        <button class="nav-btn" id="nav-disc" data-screen="discgolf">Disc Golf</button>
+    </div>
+
+    <!-- Shop Screen -->
+    <div id="shop-screen" class="screen hidden">
+        <div class="shop-header">
+            <h2>Furniture Shop</h2>
+            <p>Decorate your bean's room!</p>
+        </div>
+        <div id="shop-items"></div>
+        <div id="owned-items">
+            <h3>Your Furniture</h3>
+            <div id="owned-list"></div>
+        </div>
+    </div>
+
+    <!-- Disc Golf Screen -->
+    <div id="discgolf-screen" class="screen hidden">
+        <div id="disc-hud">
+            <span id="disc-hole-label">Hole 1/5</span>
+            <span id="disc-wind-label">Wind: calm</span>
+            <span id="disc-score-label">Score: E</span>
+        </div>
+        <canvas id="disc-canvas" width="400" height="350"></canvas>
+        <div id="disc-controls" class="hidden">
+            <div id="disc-select">
+                <button class="disc-type selected" data-disc="putter">Putter</button>
+                <button class="disc-type" data-disc="mid">Mid-Range</button>
+                <button class="disc-type" data-disc="driver">Driver</button>
+            </div>
+            <div id="aim-meter">
+                <span class="meter-label">AIM</span>
+                <div id="aim-bar-bg">
+                    <div id="aim-marker"></div>
+                </div>
+            </div>
+            <div id="power-meter">
+                <span class="meter-label">POWER</span>
+                <div id="power-bar-bg">
+                    <div id="power-bar-fill"></div>
+                </div>
+            </div>
+            <button id="throw-btn">THROW!</button>
+        </div>
+        <div id="disc-result" class="hidden">
+            <span id="disc-result-text"></span>
+            <button id="disc-next">Next Hole</button>
+        </div>
+        <div id="disc-round-result" class="hidden">
+            <span id="disc-round-text"></span>
+            <button id="disc-play-again">Play Again</button>
+            <button id="disc-back">Back to Room</button>
+        </div>
+    </div>
+
+    <!-- Passed Out Overlay -->
+    <div id="passed-out-overlay" class="hidden">
+        <div class="passed-out-content">
+            <h2>Your Bean Passed Out!</h2>
+            <p>You neglected your bean for too long...</p>
+            <p>It'll take some TLC to get back on track.</p>
+            <button id="revive-btn">Revive Bean</button>
+        </div>
+    </div>
+
+    <script src="game.js"></script>
+</body>
+</html>
