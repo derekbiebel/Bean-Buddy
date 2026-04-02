@@ -896,13 +896,9 @@ function doAction(action) {
             break;
 
         case 'friends':
-            state.social = Math.min(100, state.social + 25);
-            state.fun = Math.min(100, state.fun + 5);
-            beanAction = 'friends';
-            beanActionTimer = 0;
-            actionCooldowns.friends = now + 5000;
-            showStatus('Hanging with the crew! 🤝');
-            break;
+            switchScreen('bar');
+            enterBar();
+            return;
 
         case 'disc':
             switchScreen('discgolf');
@@ -1634,6 +1630,446 @@ function drawDiscFlying() {
     discCtx.stroke();
 }
 
+// ---- BAR SCENE ----
+const BEAN_NAMES = [
+    'Lima Larry', 'Pinto Pete', 'Kidney Karen', 'Black Bean Bob',
+    'Navy Nancy', 'Edamame Eddie', 'Garbanzo Gary', 'Lentil Lisa',
+    'Fava Frank', 'Mung Bean Mike', 'String Bean Steve', 'Jelly Bean Jen',
+    'Cool Bean Chris', 'Has-Bean Harry', 'Refried Rita', 'Espresso Ellie',
+    'Vanilla Val', 'Cocoa Bean Carl', 'Coffee Kate', 'Jumping Bean Jake',
+    'Broad Bean Betty', 'Runner Bean Rick', 'Butter Bean Barb', 'Soy Bean Sam',
+];
+
+const BEAN_VIBES = [
+    { id: 'chill',    label: 'vibing to the jukebox',     emoji: '😎' },
+    { id: 'rowdy',    label: 'being loud at the bar',      emoji: '🤪' },
+    { id: 'shy',      label: 'quietly sipping a drink',    emoji: '🥺' },
+    { id: 'philo',    label: 'staring deep into a beer',   emoji: '🤔' },
+    { id: 'sporty',   label: 'watching disc golf on TV',   emoji: '🏆' },
+    { id: 'funny',    label: 'cracking up at something',   emoji: '😂' },
+];
+
+const BEAN_COLORS = ['#8B6B4A', '#A0825E', '#6B8B5A', '#8B5A5A', '#5A6B8B', '#8B7B5A', '#7A5A8B', '#5A8B7B'];
+
+// Conversation topics and responses per vibe
+const CONVERSATIONS = {
+    greet: {
+        label: 'Say hey',
+        responses: {
+            chill:  ['"Heyyy, what\'s good? Pull up a stool."', '"Sup. Nice night for a cold one."', '"Ayy, haven\'t seen you around. Welcome."'],
+            rowdy:  ['"YOOO! This bean knows how to party!"', '"Finally someone cool showed up! Let\'s GO!"', '"HEY! You look like you can hang!"'],
+            shy:    ['"Oh, um... hi there."', '"...hey." *small wave*', '"Oh! I didn\'t think anyone would come talk to me."'],
+            philo:  ['"Ah, another soul seeking connection in this vast universe."', '"Hello, friend. Tell me — are we beans having a human experience?"', '"Welcome. I was just pondering the meaning of fermentation."'],
+            sporty: ['"Hey! Did you see that ace on hole 7 today??"', '"What\'s up! You play disc golf? You LOOK like you play."', '"Yo! My drive has been so clean lately."'],
+            funny:  ['"Oh good, I need a new audience — everyone else already heard my jokes."', '"Hey! Quick — what do you call a bean that tells lies? A fib-er bean!"', '"Welcome to my TED talk. Today\'s topic: why bar nuts are hilarious."'],
+        },
+        social: 8, fun: 3,
+    },
+    joke: {
+        label: 'Tell a joke',
+        responses: {
+            chill:  ['"Heh, nice one. That\'s pretty good."', '"Ha! Okay okay, I see you."', '*nods approvingly* "Solid."'],
+            rowdy:  ['"BAHAHA! That\'s the best thing I\'ve heard all WEEK!"', '"I\'M DYING! Tell another one!"', '"HAHAHAHA oh man, you\'re killing me!"'],
+            shy:    ['"Oh... hehe..." *covers face* "That was actually funny."', '"..." *trying not to laugh* "...okay that was good."', '*giggles quietly* "...please tell more."'],
+            philo:  ['"Interesting. Humor as a defense mechanism against the absurd."', '"Hmm. That joke reveals a deeper truth about bean society."', '"I laughed, but also, have you considered WHY it\'s funny?"'],
+            sporty: ['"Ha! Good one. Okay but have you heard the one about the shanked drive?"', '"Lol nice. Not as good as my disc golf jokes though."', '"Haha! Reminds me of this one time on hole 3—"'],
+            funny:  ['"Okay that was a 7/10. Let me hit you with a 10/10..."', '"HA! A fellow comedian! We should start a duo."', '"Not bad, not bad. But check THIS one out—"'],
+        },
+        social: 12, fun: 8,
+    },
+    deep: {
+        label: 'Get deep',
+        responses: {
+            chill:  ['"For real though... I\'m glad I came out tonight."', '"You know what, you\'re good people. I mean, good beans."', '"Life\'s pretty good when you think about it. Cheers."'],
+            rowdy:  ['"Bro... that\'s actually... *sniff* ...really beautiful."', '"Dude okay I wasn\'t ready to get emotional tonight."', '"Why you gotta make it deep?? ...but yeah, you\'re right."'],
+            shy:    ['"Wow... nobody ever asks me real stuff like that."', '"I... actually really needed to hear that tonight."', '"You\'re the first bean who really gets me."'],
+            philo:  ['"YES. Now we\'re talking. The existential weight of being a bean..."', '"I\'ve been waiting all night for this conversation."', '"This is why I come to bars. Not the drinks. The TRUTH."'],
+            sporty: ['"Huh. I usually don\'t go there but... you make a good point."', '"That\'s actually deep. Like a really deep rough on hole 12."', '"Wow... I need to think about that during my next round."'],
+            funny:  ['"Oh we\'re doing feelings now? ...okay fine, that was beautiful."', '"Dang. I came here to laugh, not to FEEL."', '"...alright that got me. Cheers to that."'],
+        },
+        social: 18, fun: 2,
+    },
+    buyround: {
+        label: 'Buy a round',
+        cost: 2,
+        responses: {
+            chill:  ['"Woah, you didn\'t have to! ...but I respect it. Cheers!"', '"Now THAT is a vibe. You\'re officially my friend."', '"A bean after my own heart. To good times!"'],
+            rowdy:  ['"YOOOO FREE DRINKS!! THIS BEAN IS A LEGEND!!"', '"EVERYBODY! This bean just bought a round! *the whole bar cheers*"', '"LET\'S GOOOO! Best bean in the building!!"'],
+            shy:    ['"For... for me? Oh wow... you really didn\'t have to..."', '"*eyes light up* ...nobody\'s ever bought me a drink before."', '"This is... the nicest thing. Thank you."'],
+            philo:  ['"Generosity — the purest expression of the bean condition."', '"In buying this round, you buy a moment of connection. Beautiful."', '"The glass fills, as does my appreciation for your kindness."'],
+            sporty: ['"Drinks on you?? That\'s a birdie move right there!"', '"Now THAT\'S a power play! Cheers, champ!"', '"Ace move! Next round of disc golf is on me."'],
+            funny:  ['"Free drinks AND good company? Did I win the lottery?"', '"To the bean with the deepest pockets and biggest heart!"', '"Finally my looks are paying off! ...wait, you\'re buying for everyone?"'],
+        },
+        social: 22, fun: 10, thirst: 15,
+    },
+    discgolf: {
+        label: 'Talk disc golf',
+        responses: {
+            chill:  ['"I\'ve been getting into it! Super relaxing out on the course."', '"Disc golf is the perfect chill sport. Beer in one hand, disc in the other."', '"My buddy took me last week. I\'m hooked."'],
+            rowdy:  ['"DUDE I just threw the farthest drive of my LIFE yesterday!"', '"Disc golf?? I SMASH drivers! Pure BEEF!"', '"Let\'s play tomorrow! I\'ll bring the beers!"'],
+            shy:    ['"I\'ve been wanting to try but... I\'d need someone to go with."', '"I watch videos about it... it looks really peaceful."', '"Maybe... would you want to play sometime?"'],
+            philo:  ['"The flight of a disc — chaos and order in perfect balance."', '"Each throw is a metaphor. The wind, the trees, the choices..."', '"In disc golf, as in life, we throw and hope for the best."'],
+            sporty: ['"Oh you wanna go? My forehand is NASTY right now."', '"I just parked a 300-footer yesterday. No big deal."', '"What\'s your go-to driver? I\'m a Destroyer bean myself."'],
+            funny:  ['"I played yesterday! Shot a 12 on one hole. New record!"', '"I\'m great at disc golf. The disc just goes... not where I want."', '"Trees are 90% of the course and 100% of my problems."'],
+        },
+        social: 10, fun: 12,
+    },
+};
+
+const barCanvas = $('bar-canvas');
+const barCtx = barCanvas.getContext('2d');
+
+let barState = {
+    npcs: [],
+    talkingTo: null,
+    phase: 'pick', // pick, dialogue, result
+};
+
+function enterBar() {
+    // Generate 3 random NPC beans
+    const shuffledNames = [...BEAN_NAMES].sort(() => Math.random() - 0.5);
+    const shuffledVibes = [...BEAN_VIBES].sort(() => Math.random() - 0.5);
+    barState.npcs = [];
+    for (let i = 0; i < 3; i++) {
+        barState.npcs.push({
+            name: shuffledNames[i],
+            vibe: shuffledVibes[i],
+            color: BEAN_COLORS[Math.floor(Math.random() * BEAN_COLORS.length)],
+            talked: false,
+        });
+    }
+    barState.talkingTo = null;
+    barState.phase = 'pick';
+    drawBar();
+    renderBarUI();
+}
+
+function drawBar() {
+    const w = barCanvas.width;
+    const h = barCanvas.height;
+    barCtx.clearRect(0, 0, w, h);
+
+    // Bar background - warm dark interior
+    barCtx.fillStyle = '#2A1F14';
+    barCtx.fillRect(0, 0, w, h);
+
+    // Back wall (wood paneling)
+    barCtx.fillStyle = '#3D2B1A';
+    barCtx.fillRect(0, 0, w, h * 0.55);
+    // Wall planks
+    barCtx.strokeStyle = '#33220F';
+    barCtx.lineWidth = 1;
+    for (let i = 0; i < 8; i++) {
+        const x = i * (w / 8) + 10;
+        barCtx.beginPath();
+        barCtx.moveTo(x, 0);
+        barCtx.lineTo(x, h * 0.55);
+        barCtx.stroke();
+    }
+
+    // Shelf on wall
+    barCtx.fillStyle = '#5C4025';
+    barCtx.fillRect(20, 30, w - 40, 8);
+    barCtx.fillStyle = '#4A3320';
+    barCtx.fillRect(20, 38, w - 40, 3);
+
+    // Bottles on shelf
+    const bottleColors = ['#2D7D2D', '#8B2020', '#C4A043', '#2050A0', '#8B6538', '#A02050'];
+    for (let i = 0; i < 10; i++) {
+        const bx = 35 + i * 35;
+        const bc = bottleColors[i % bottleColors.length];
+        barCtx.fillStyle = bc;
+        barCtx.fillRect(bx - 4, 8, 8, 22);
+        barCtx.fillStyle = '#1A1210';
+        barCtx.fillRect(bx - 2, 4, 4, 6);
+    }
+
+    // Neon sign glow
+    barCtx.fillStyle = 'rgba(240, 198, 116, 0.08)';
+    barCtx.beginPath();
+    barCtx.arc(w / 2, 55, 60, 0, Math.PI * 2);
+    barCtx.fill();
+    // Neon sign text
+    barCtx.font = '10px "Press Start 2P", monospace';
+    barCtx.textAlign = 'center';
+    barCtx.fillStyle = '#F0C674';
+    barCtx.fillText('THE BEAN BAR', w / 2, 58);
+    barCtx.strokeStyle = '#F0C674';
+    barCtx.lineWidth = 1;
+    barCtx.strokeRect(w / 2 - 70, 44, 140, 22);
+
+    // Bar counter top
+    barCtx.fillStyle = '#5C4025';
+    barCtx.fillRect(0, h * 0.55, w, 12);
+    // Counter front
+    barCtx.fillStyle = '#4A3320';
+    barCtx.fillRect(0, h * 0.55 + 12, w, h * 0.45 - 12);
+    // Counter trim
+    barCtx.fillStyle = '#6B5030';
+    barCtx.fillRect(0, h * 0.55, w, 4);
+    // Counter wood grain
+    barCtx.strokeStyle = '#3D2815';
+    barCtx.lineWidth = 1;
+    for (let i = 0; i < 5; i++) {
+        const y = h * 0.55 + 20 + i * 15;
+        barCtx.beginPath();
+        barCtx.moveTo(0, y);
+        barCtx.lineTo(w, y);
+        barCtx.stroke();
+    }
+
+    // Bar stools
+    for (let i = 0; i < 3; i++) {
+        const sx = 80 + i * 120;
+        const sy = h * 0.55 + 40;
+        // Stool base
+        barCtx.strokeStyle = '#666';
+        barCtx.lineWidth = 3;
+        barCtx.beginPath();
+        barCtx.moveTo(sx, sy + 20);
+        barCtx.lineTo(sx, sy + 45);
+        barCtx.stroke();
+        barCtx.beginPath();
+        barCtx.moveTo(sx - 12, sy + 45);
+        barCtx.lineTo(sx + 12, sy + 45);
+        barCtx.stroke();
+        // Stool seat
+        barCtx.fillStyle = '#8B4444';
+        barCtx.beginPath();
+        barCtx.ellipse(sx, sy + 18, 14, 6, 0, 0, Math.PI * 2);
+        barCtx.fill();
+    }
+
+    // Draw NPC beans on stools
+    barState.npcs.forEach((npc, i) => {
+        const bx = 80 + i * 120;
+        const by = h * 0.55 + 10;
+        drawBarBean(bx, by, npc);
+    });
+
+    // Your bean at the bar (smaller, at the counter)
+    const yx = 200;
+    const yy = h * 0.55 + 60;
+    barCtx.fillStyle = '#8B6B4A';
+    barCtx.beginPath();
+    barCtx.ellipse(yx, yy, 10, 14, 0, 0, Math.PI * 2);
+    barCtx.fill();
+    barCtx.strokeStyle = '#5C4530';
+    barCtx.lineWidth = 1.5;
+    barCtx.stroke();
+    // Your face
+    barCtx.fillStyle = '#3D2B1A';
+    barCtx.beginPath();
+    barCtx.arc(yx - 3, yy - 4, 2, 0, Math.PI * 2);
+    barCtx.arc(yx + 3, yy - 4, 2, 0, Math.PI * 2);
+    barCtx.fill();
+    // Smile
+    barCtx.strokeStyle = '#3D2B1A';
+    barCtx.lineWidth = 1.5;
+    barCtx.beginPath();
+    barCtx.arc(yx, yy, 4, 0.2, Math.PI - 0.2);
+    barCtx.stroke();
+    // Label
+    barCtx.font = '6px "Press Start 2P", monospace';
+    barCtx.fillStyle = '#F0C674';
+    barCtx.textAlign = 'center';
+    barCtx.fillText('YOU', yx, yy + 22);
+
+    // Drinks on counter
+    barState.npcs.forEach((npc, i) => {
+        const dx = 70 + i * 120;
+        const dy = h * 0.55 + 2;
+        // Glass
+        barCtx.fillStyle = '#F0C674';
+        barCtx.fillRect(dx, dy - 10, 8, 10);
+        barCtx.fillStyle = 'rgba(255,255,255,0.3)';
+        barCtx.fillRect(dx + 1, dy - 9, 3, 8);
+    });
+}
+
+function drawBarBean(x, y, npc) {
+    // Body
+    barCtx.fillStyle = npc.color;
+    barCtx.beginPath();
+    barCtx.ellipse(x, y - 8, 12, 16, 0, 0, Math.PI * 2);
+    barCtx.fill();
+    barCtx.strokeStyle = '#3D2B1A';
+    barCtx.lineWidth = 1.5;
+    barCtx.stroke();
+
+    // Highlight
+    barCtx.fillStyle = 'rgba(255,255,255,0.12)';
+    barCtx.beginPath();
+    barCtx.ellipse(x - 3, y - 13, 5, 9, -0.3, 0, Math.PI * 2);
+    barCtx.fill();
+
+    // Eyes
+    barCtx.fillStyle = '#3D2B1A';
+    barCtx.beginPath();
+    barCtx.arc(x - 4, y - 12, 2, 0, Math.PI * 2);
+    barCtx.arc(x + 4, y - 12, 2, 0, Math.PI * 2);
+    barCtx.fill();
+    // Eye shine
+    barCtx.fillStyle = 'white';
+    barCtx.beginPath();
+    barCtx.arc(x - 3, y - 13, 0.8, 0, Math.PI * 2);
+    barCtx.arc(x + 5, y - 13, 0.8, 0, Math.PI * 2);
+    barCtx.fill();
+
+    // Mouth (varies by vibe)
+    barCtx.strokeStyle = '#3D2B1A';
+    barCtx.lineWidth = 1.5;
+    barCtx.beginPath();
+    if (npc.vibe.id === 'rowdy') {
+        barCtx.arc(x, y - 6, 5, 0, Math.PI); // big open mouth
+        barCtx.fill();
+    } else if (npc.vibe.id === 'shy') {
+        barCtx.moveTo(x - 2, y - 5);
+        barCtx.lineTo(x + 2, y - 5);
+    } else {
+        barCtx.arc(x, y - 6, 3, 0.2, Math.PI - 0.2);
+    }
+    barCtx.stroke();
+
+    // Name tag
+    barCtx.font = '6px "Press Start 2P", monospace';
+    barCtx.fillStyle = '#F5E6D0';
+    barCtx.textAlign = 'center';
+    barCtx.fillText(npc.name.split(' ')[0], x, y + 16);
+
+    // Highlight if talking to
+    if (barState.talkingTo === npc) {
+        barCtx.strokeStyle = '#F0C674';
+        barCtx.lineWidth = 2;
+        barCtx.setLineDash([3, 3]);
+        barCtx.beginPath();
+        barCtx.arc(x, y - 6, 22, 0, Math.PI * 2);
+        barCtx.stroke();
+        barCtx.setLineDash([]);
+    }
+}
+
+function renderBarUI() {
+    const npcList = $('bar-npc-list');
+    const dialogue = $('bar-dialogue');
+    const result = $('bar-result');
+
+    if (barState.phase === 'pick') {
+        npcList.classList.remove('hidden');
+        dialogue.classList.add('hidden');
+        result.classList.add('hidden');
+        npcList.innerHTML = '<div style="font-size:8px;color:#F0C674;margin-bottom:6px;text-align:center;">Who do you wanna talk to?</div>';
+
+        barState.npcs.forEach((npc, i) => {
+            const btn = document.createElement('div');
+            btn.className = 'bar-npc-btn';
+            btn.innerHTML = `
+                <span class="npc-icon">${npc.vibe.emoji}</span>
+                <span class="npc-info">
+                    <span class="npc-name">${npc.name}</span>
+                    <span class="npc-vibe">${npc.vibe.label}</span>
+                </span>
+            `;
+            btn.addEventListener('click', () => startConversation(npc));
+            npcList.appendChild(btn);
+        });
+    } else if (barState.phase === 'dialogue') {
+        npcList.classList.add('hidden');
+        dialogue.classList.remove('hidden');
+        result.classList.add('hidden');
+
+        const npc = barState.talkingTo;
+        $('bar-speaker').textContent = npc.vibe.emoji + ' ' + npc.name;
+        $('bar-text').textContent = barState.greeting;
+
+        const choices = $('bar-choices');
+        choices.innerHTML = '';
+        Object.entries(CONVERSATIONS).forEach(([key, conv]) => {
+            if (key === 'greet') return; // greeting already happened
+            const btn = document.createElement('button');
+            btn.className = 'bar-choice-btn';
+            let label = conv.label;
+            if (conv.cost) label += ` <span class="choice-cost">(${conv.cost} coins)</span>`;
+            btn.innerHTML = label;
+            if (conv.cost && state.coins < conv.cost) {
+                btn.disabled = true;
+                btn.style.opacity = '0.4';
+            }
+            btn.addEventListener('click', () => doBarAction(key, conv, npc));
+            choices.appendChild(btn);
+        });
+
+        // Back button
+        const backBtn = document.createElement('button');
+        backBtn.className = 'bar-choice-btn';
+        backBtn.style.borderColor = '#B8B0CC';
+        backBtn.textContent = '← Talk to someone else';
+        backBtn.addEventListener('click', () => {
+            barState.phase = 'pick';
+            barState.talkingTo = null;
+            drawBar();
+            renderBarUI();
+        });
+        choices.appendChild(backBtn);
+    }
+}
+
+function startConversation(npc) {
+    barState.talkingTo = npc;
+    barState.phase = 'dialogue';
+
+    // Get greeting
+    const greetings = CONVERSATIONS.greet.responses[npc.vibe.id];
+    barState.greeting = greetings[Math.floor(Math.random() * greetings.length)];
+
+    // Apply greeting boost
+    state.social = Math.min(100, state.social + CONVERSATIONS.greet.social);
+    state.fun = Math.min(100, state.fun + CONVERSATIONS.greet.fun);
+
+    drawBar();
+    renderBarUI();
+}
+
+function doBarAction(key, conv, npc) {
+    if (conv.cost) {
+        if (state.coins < conv.cost) return;
+        state.coins -= conv.cost;
+    }
+
+    // Get response
+    const responses = conv.responses[npc.vibe.id];
+    const response = responses[Math.floor(Math.random() * responses.length)];
+
+    // Apply stat boosts
+    if (conv.social) state.social = Math.min(100, state.social + conv.social);
+    if (conv.fun) state.fun = Math.min(100, state.fun + conv.fun);
+    if (conv.thirst) state.thirst = Math.min(100, state.thirst + conv.thirst);
+
+    // Show result
+    barState.phase = 'result';
+    let resultText = `${npc.vibe.emoji} ${npc.name}:\n${response}\n\n`;
+    if (conv.social) resultText += `+${conv.social} social  `;
+    if (conv.fun) resultText += `+${conv.fun} fun  `;
+    if (conv.thirst) resultText += `+${conv.thirst} thirst  `;
+    if (conv.cost) resultText += `\n-${conv.cost} coins`;
+
+    $('bar-npc-list').classList.add('hidden');
+    $('bar-dialogue').classList.add('hidden');
+    $('bar-result').classList.remove('hidden');
+    $('bar-result-text').textContent = resultText;
+
+    updateStatBars();
+    updateCoinDisplay();
+    saveGame();
+}
+
+function barTalkMore() {
+    barState.phase = 'pick';
+    barState.talkingTo = null;
+    drawBar();
+    renderBarUI();
+}
+
 // ---- DECORATE MODE ----
 let decorateMode = false;
 let decoSelectedItem = null;
@@ -1813,6 +2249,7 @@ function switchScreen(screen) {
         $('game-screen').classList.toggle('hidden', screen !== 'room');
         $('action-bar').classList.toggle('hidden', screen !== 'room');
         $('shop-screen').classList.toggle('hidden', screen !== 'shop');
+        $('bar-screen').classList.toggle('hidden', screen !== 'bar');
         $('discgolf-screen').classList.toggle('hidden', screen !== 'discgolf');
         $('decorate-bar').classList.add('hidden');
     }
@@ -1872,6 +2309,10 @@ function init() {
             discState.disc = btn.dataset.disc;
         });
     });
+
+    // Bar buttons
+    $('bar-talk-more').addEventListener('click', barTalkMore);
+    $('bar-leave').addEventListener('click', () => switchScreen('room'));
 
     $('throw-btn').addEventListener('click', throwDisc);
     $('disc-next').addEventListener('click', nextHole);

@@ -68,8 +68,8 @@
             <span class="btn-label">Beer</span>
         </button>
         <button class="action-btn" id="btn-friends" data-action="friends">
-            <span class="btn-icon">&#129309;</span>
-            <span class="btn-label">Friends</span>
+            <span class="btn-icon">&#127866;</span>
+            <span class="btn-label">The Bar</span>
         </button>
         <button class="action-btn" id="btn-disc" data-action="disc">
             <span class="btn-icon">&#129359;</span>
@@ -108,6 +108,26 @@
         <div id="owned-items">
             <h3>Your Furniture</h3>
             <div id="owned-list"></div>
+        </div>
+    </div>
+
+    <!-- Bar Screen -->
+    <div id="bar-screen" class="screen hidden">
+        <canvas id="bar-canvas" width="400" height="220"></canvas>
+        <div id="bar-ui">
+            <div id="bar-npc-list"></div>
+            <div id="bar-dialogue" class="hidden">
+                <div id="bar-speaker"></div>
+                <div id="bar-text"></div>
+                <div id="bar-choices"></div>
+            </div>
+            <div id="bar-result" class="hidden">
+                <div id="bar-result-text"></div>
+                <div id="bar-result-btns">
+                    <button id="bar-talk-more">Talk More</button>
+                    <button id="bar-leave">Leave Bar</button>
+                </div>
+            </div>
         </div>
     </div>
 
