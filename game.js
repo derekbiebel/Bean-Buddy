@@ -2268,6 +2268,646 @@ function onFlappyInput(e) {
     flapJump();
 }
 
+// ---- BEAN BEATS (Rhythm Game) ----
+const beatsCanvas = $('beats-canvas');
+let beatsCtx = beatsCanvas.getContext('2d');
+let BW = beatsCanvas.width;
+let BH = beatsCanvas.height;
+
+const LANE_COLORS = ['#E85B7A', '#5BE8B8', '#E8C85B', '#5B8BE8'];
+const LANE_KEYS = ['d', 'f', 'j', 'k'];
+const LANE_LABELS = ['D', 'F', 'J', 'K'];
+const NUM_LANES = 4;
+const HIT_ZONE_Y_RATIO = 0.85; // where the hit zone sits
+const NOTE_SPEED = 3.5;
+const HIT_WINDOW_PERFECT = 18;
+const HIT_WINDOW_GOOD = 40;
+const HIT_WINDOW_OK = 65;
+
+// Song patterns: each song is a name + BPM + array of [beat, lane] pairs
+// beat = which beat number the note falls on (can be fractional)
+const SONGS = [
+    {
+        name: 'Chill Vibes',
+        bpm: 100,
+        difficulty: 'Easy',
+        notes: (() => {
+            const n = [];
+            for (let b = 0; b < 32; b++) {
+                n.push([b, b % NUM_LANES]);
+            }
+            return n;
+        })(),
+    },
+    {
+        name: 'Disc Golf Funk',
+        bpm: 120,
+        difficulty: 'Medium',
+        notes: (() => {
+            const n = [];
+            for (let b = 0; b < 40; b += 0.5) {
+                if (Math.sin(b * 1.3) > -0.2) {
+                    n.push([b, Math.floor((Math.sin(b * 0.7) * 0.5 + 0.5) * NUM_LANES) % NUM_LANES]);
+                }
+            }
+            return n;
+        })(),
+    },
+    {
+        name: 'Bar Fight',
+        bpm: 140,
+        difficulty: 'Hard',
+        notes: (() => {
+            const n = [];
+            for (let b = 0; b < 48; b += 0.5) {
+                const lane = Math.floor(Math.abs(Math.sin(b * 0.9) * Math.cos(b * 0.4)) * NUM_LANES) % NUM_LANES;
+                n.push([b, lane]);
+                // Add doubles on every 4th beat
+                if (b % 4 === 0) {
+                    n.push([b, (lane + 2) % NUM_LANES]);
+                }
+            }
+            return n;
+        })(),
+    },
+    {
+        name: 'Bean Bop',
+        bpm: 110,
+        difficulty: 'Easy',
+        notes: (() => {
+            const n = [];
+            // Simple alternating pattern
+            for (let b = 0; b < 32; b++) {
+                n.push([b, b % 2 === 0 ? 0 : 3]);
+                if (b % 4 === 2) n.push([b, 1]);
+                if (b % 4 === 3) n.push([b, 2]);
+            }
+            return n;
+        })(),
+    },
+    {
+        name: 'Ace Run',
+        bpm: 150,
+        difficulty: 'Hard',
+        notes: (() => {
+            const n = [];
+            for (let b = 0; b < 56; b += 0.25) {
+                if (Math.random() < 0.35) {
+                    n.push([b, Math.floor(Math.random() * NUM_LANES)]);
+                }
+            }
+            // Sort by beat time
+            n.sort((a, b) => a[0] - b[0]);
+            return n;
+        })(),
+    },
+    {
+        name: 'Sunset Session',
+        bpm: 95,
+        difficulty: 'Medium',
+        notes: (() => {
+            const n = [];
+            for (let b = 0; b < 36; b++) {
+                // Cascading pattern
+                const base = b % 8;
+                if (base < 4) n.push([b, base]);
+                else n.push([b, 7 - base]);
+                // Add half-beat notes occasionally
+                if (b % 3 === 0) n.push([b + 0.5, (base + 2) % NUM_LANES]);
+            }
+            return n;
+        })(),
+    },
+];
+
+let beats = {
+    phase: 'menu',  // menu, playing, results
+    song: null,
+    songIndex: 0,
+    notes: [],      // active notes: { lane, y, hit, missed }
+    startTime: 0,
+    score: 0,
+    combo: 0,
+    maxCombo: 0,
+    perfects: 0,
+    goods: 0,
+    oks: 0,
+    misses: 0,
+    laneFlash: [0, 0, 0, 0],  // flash timers per lane
+    lanePress: [false, false, false, false],
+    hitEffects: [],  // { x, y, text, timer, color }
+    totalNotes: 0,
+    coinsEarned: 0,
+    menuScroll: 0,
+};
+
+let beatsRAF = null;
+
+function resizeBeatsCanvas() {
+    const screen = $('beats-screen');
+    const navH = $('nav-bar').offsetHeight || 40;
+    const titleH = $('title-bar').offsetHeight || 40;
+    const availH = window.innerHeight - navH - titleH;
+    const availW = Math.min(400, screen.offsetWidth || 400);
+    let cw = availW;
+    let ch = Math.min(Math.floor(cw * 1.3), availH);
+    beatsCanvas.width = cw;
+    beatsCanvas.height = ch;
+    BW = cw;
+    BH = ch;
+    initPixelBuffer('beats', beatsCanvas);
+}
+
+function startBeats() {
+    stopBeats();
+    resizeBeatsCanvas();
+    beats.phase = 'menu';
+    beatsLoop();
+}
+
+function stopBeats() {
+    if (beatsRAF) {
+        cancelAnimationFrame(beatsRAF);
+        beatsRAF = null;
+    }
+}
+
+function beatsLoop() {
+    try {
+        beatsDraw();
+    } catch (e) {
+        console.error('Beats error:', e);
+    }
+    beatsRAF = requestAnimationFrame(beatsLoop);
+}
+
+function startSong(index) {
+    const song = SONGS[index];
+    beats.phase = 'playing';
+    beats.song = song;
+    beats.songIndex = index;
+    beats.score = 0;
+    beats.combo = 0;
+    beats.maxCombo = 0;
+    beats.perfects = 0;
+    beats.goods = 0;
+    beats.oks = 0;
+    beats.misses = 0;
+    beats.laneFlash = [0, 0, 0, 0];
+    beats.lanePress = [false, false, false, false];
+    beats.hitEffects = [];
+    beats.coinsEarned = 0;
+
+    // Convert song notes to game notes with Y positions based on timing
+    const hitY = BH * HIT_ZONE_Y_RATIO;
+    const secPerBeat = 60 / song.bpm;
+    beats.notes = song.notes.map(([beat, lane]) => ({
+        lane,
+        time: beat * secPerBeat,
+        hit: false,
+        missed: false,
+    }));
+    beats.totalNotes = beats.notes.length;
+    beats.startTime = performance.now() / 1000 + 2; // 2 sec lead-in
+}
+
+function beatsHitLane(lane) {
+    if (beats.phase !== 'playing') return;
+
+    beats.lanePress[lane] = true;
+    setTimeout(() => { beats.lanePress[lane] = false; }, 80);
+
+    const now = performance.now() / 1000;
+    const elapsed = now - beats.startTime;
+    const hitY = BH * HIT_ZONE_Y_RATIO;
+
+    // Find closest unhit note in this lane
+    let closest = null;
+    let closestDist = Infinity;
+    for (const note of beats.notes) {
+        if (note.lane !== lane || note.hit || note.missed) continue;
+        const noteY = hitY - (note.time - elapsed) * NOTE_SPEED * 60;
+        const dist = Math.abs(noteY - hitY);
+        if (dist < closestDist) {
+            closestDist = dist;
+            closest = note;
+        }
+    }
+
+    if (!closest) return;
+
+    const laneW = BW / NUM_LANES;
+    const cx = lane * laneW + laneW / 2;
+
+    if (closestDist < HIT_WINDOW_PERFECT) {
+        closest.hit = true;
+        beats.perfects++;
+        beats.score += 100 * (1 + Math.floor(beats.combo / 10) * 0.5);
+        beats.combo++;
+        beats.laneFlash[lane] = 12;
+        beats.hitEffects.push({ x: cx, y: hitY, text: 'PERFECT', timer: 30, color: '#F0C674' });
+    } else if (closestDist < HIT_WINDOW_GOOD) {
+        closest.hit = true;
+        beats.goods++;
+        beats.score += 60 * (1 + Math.floor(beats.combo / 10) * 0.5);
+        beats.combo++;
+        beats.laneFlash[lane] = 8;
+        beats.hitEffects.push({ x: cx, y: hitY, text: 'GOOD', timer: 25, color: '#6FCF97' });
+    } else if (closestDist < HIT_WINDOW_OK) {
+        closest.hit = true;
+        beats.oks++;
+        beats.score += 30;
+        beats.combo++;
+        beats.laneFlash[lane] = 5;
+        beats.hitEffects.push({ x: cx, y: hitY, text: 'OK', timer: 20, color: '#5BA4E8' });
+    } else {
+        // Too far - miss
+        beats.combo = 0;
+    }
+
+    beats.maxCombo = Math.max(beats.maxCombo, beats.combo);
+}
+
+function beatsDraw() {
+    beatsCtx = pixelBegin('beats');
+    const now = performance.now() / 1000;
+
+    if (beats.phase === 'menu') {
+        drawBeatsMenu();
+        pixelEnd('beats');
+        return;
+    }
+
+    if (beats.phase === 'results') {
+        drawBeatsResults();
+        pixelEnd('beats');
+        return;
+    }
+
+    // Playing
+    const elapsed = now - beats.startTime;
+    const hitY = BH * HIT_ZONE_Y_RATIO;
+    const laneW = BW / NUM_LANES;
+
+    // Background
+    beatsCtx.fillStyle = '#0D0C14';
+    beatsCtx.fillRect(0, 0, BW, BH);
+
+    // Lane backgrounds
+    for (let i = 0; i < NUM_LANES; i++) {
+        const x = i * laneW;
+        beatsCtx.fillStyle = i % 2 === 0 ? '#151320' : '#1A1828';
+        beatsCtx.fillRect(x, 0, laneW, BH);
+
+        // Lane dividers
+        beatsCtx.fillStyle = '#2A2840';
+        beatsCtx.fillRect(x, 0, 2, BH);
+
+        // Flash effect
+        if (beats.laneFlash[i] > 0) {
+            const alpha = beats.laneFlash[i] / 12;
+            beatsCtx.fillStyle = `rgba(${hexToRgb(LANE_COLORS[i])}, ${alpha * 0.3})`;
+            beatsCtx.fillRect(x, 0, laneW, BH);
+            beats.laneFlash[i]--;
+        }
+
+        // Press effect
+        if (beats.lanePress[i]) {
+            beatsCtx.fillStyle = `rgba(${hexToRgb(LANE_COLORS[i])}, 0.15)`;
+            beatsCtx.fillRect(x, hitY - 30, laneW, 60);
+        }
+    }
+
+    // Hit zone line
+    beatsCtx.fillStyle = '#444460';
+    beatsCtx.fillRect(0, hitY - 2, BW, 4);
+
+    // Hit zone targets
+    for (let i = 0; i < NUM_LANES; i++) {
+        const cx = i * laneW + laneW / 2;
+        beatsCtx.strokeStyle = LANE_COLORS[i];
+        beatsCtx.lineWidth = 3;
+        beatsCtx.beginPath();
+        beatsCtx.arc(cx, hitY, laneW * 0.3, 0, Math.PI * 2);
+        beatsCtx.stroke();
+
+        // Inner glow if pressed
+        if (beats.lanePress[i]) {
+            beatsCtx.fillStyle = LANE_COLORS[i];
+            beatsCtx.beginPath();
+            beatsCtx.arc(cx, hitY, laneW * 0.25, 0, Math.PI * 2);
+            beatsCtx.fill();
+        }
+    }
+
+    // Draw notes
+    let allDone = true;
+    for (const note of beats.notes) {
+        if (note.hit) continue;
+
+        const noteY = hitY - (note.time - elapsed) * NOTE_SPEED * 60;
+
+        // Check for miss (note passed the hit zone)
+        if (noteY > hitY + HIT_WINDOW_OK && !note.missed) {
+            note.missed = true;
+            beats.misses++;
+            beats.combo = 0;
+            const cx = note.lane * laneW + laneW / 2;
+            beats.hitEffects.push({ x: cx, y: hitY, text: 'MISS', timer: 20, color: '#CC3333' });
+        }
+
+        if (note.missed && noteY > BH + 20) continue;
+        if (noteY < -20) { allDone = false; continue; }
+        allDone = false;
+
+        // Draw note
+        const cx = note.lane * laneW + laneW / 2;
+        const color = note.missed ? '#555' : LANE_COLORS[note.lane];
+        const noteR = laneW * 0.28;
+
+        beatsCtx.fillStyle = color;
+        beatsCtx.beginPath();
+        beatsCtx.arc(cx, noteY, noteR, 0, Math.PI * 2);
+        beatsCtx.fill();
+
+        // Note shine
+        if (!note.missed) {
+            beatsCtx.fillStyle = 'rgba(255,255,255,0.25)';
+            beatsCtx.beginPath();
+            beatsCtx.arc(cx - noteR * 0.2, noteY - noteR * 0.25, noteR * 0.4, 0, Math.PI * 2);
+            beatsCtx.fill();
+        }
+    }
+
+    // Hit effects (floating text)
+    beats.hitEffects = beats.hitEffects.filter(e => e.timer > 0);
+    beats.hitEffects.forEach(e => {
+        const alpha = e.timer / 30;
+        beatsCtx.fillStyle = e.color;
+        beatsCtx.globalAlpha = alpha;
+        beatsCtx.font = '10px "Press Start 2P", monospace';
+        beatsCtx.textAlign = 'center';
+        beatsCtx.fillText(e.text, e.x, e.y - (30 - e.timer) * 1.5);
+        beatsCtx.globalAlpha = 1;
+        e.timer--;
+    });
+
+    // Bottom bar (dark)
+    beatsCtx.fillStyle = '#0D0C14';
+    beatsCtx.fillRect(0, hitY + laneW * 0.4, BW, BH - hitY);
+
+    // Lane labels at bottom
+    beatsCtx.font = '9px "Press Start 2P", monospace';
+    beatsCtx.textAlign = 'center';
+    for (let i = 0; i < NUM_LANES; i++) {
+        const cx = i * laneW + laneW / 2;
+        beatsCtx.fillStyle = beats.lanePress[i] ? LANE_COLORS[i] : '#555270';
+        beatsCtx.fillText(LANE_LABELS[i], cx, BH - 8);
+    }
+
+    // Score & combo HUD
+    beatsCtx.fillStyle = '#F5E6D0';
+    beatsCtx.font = '10px "Press Start 2P", monospace';
+    beatsCtx.textAlign = 'left';
+    beatsCtx.fillText(Math.floor(beats.score) + '', 8, 20);
+
+    if (beats.combo > 2) {
+        beatsCtx.fillStyle = '#F0C674';
+        beatsCtx.textAlign = 'right';
+        beatsCtx.font = '12px "Press Start 2P", monospace';
+        beatsCtx.fillText(beats.combo + 'x', BW - 8, 20);
+    }
+
+    // Song name
+    beatsCtx.fillStyle = '#555270';
+    beatsCtx.font = '7px "Press Start 2P", monospace';
+    beatsCtx.textAlign = 'center';
+    beatsCtx.fillText(beats.song.name, BW / 2, 14);
+
+    // Check if song is done
+    if (allDone && elapsed > 2) {
+        showBeatsResults();
+    }
+
+    pixelEnd('beats');
+}
+
+function hexToRgb(hex) {
+    const r = parseInt(hex.slice(1, 3), 16);
+    const g = parseInt(hex.slice(3, 5), 16);
+    const b = parseInt(hex.slice(5, 7), 16);
+    return `${r},${g},${b}`;
+}
+
+function drawBeatsMenu() {
+    // Background
+    beatsCtx.fillStyle = '#0D0C14';
+    beatsCtx.fillRect(0, 0, BW, BH);
+
+    // Title
+    beatsCtx.fillStyle = '#F0C674';
+    beatsCtx.font = '16px "Press Start 2P", monospace';
+    beatsCtx.textAlign = 'center';
+    beatsCtx.fillText('BEAN BEATS', BW / 2, 40);
+
+    beatsCtx.fillStyle = '#B8B0CC';
+    beatsCtx.font = '7px "Press Start 2P", monospace';
+    beatsCtx.fillText('Pick a song!', BW / 2, 60);
+
+    // Song list
+    const itemH = 60;
+    const startY = 80;
+    SONGS.forEach((song, i) => {
+        const y = startY + i * itemH;
+        if (y > BH - 20) return;
+
+        const hover = false;
+        beatsCtx.fillStyle = '#1A1828';
+        beatsCtx.fillRect(20, y, BW - 40, itemH - 8);
+        beatsCtx.strokeStyle = '#3D3A4E';
+        beatsCtx.lineWidth = 2;
+        beatsCtx.strokeRect(20, y, BW - 40, itemH - 8);
+
+        // Song name
+        beatsCtx.fillStyle = '#F5E6D0';
+        beatsCtx.font = '9px "Press Start 2P", monospace';
+        beatsCtx.textAlign = 'left';
+        beatsCtx.fillText(song.name, 32, y + 20);
+
+        // Difficulty
+        const diffColors = { Easy: '#6FCF97', Medium: '#E8C85B', Hard: '#E85B7A' };
+        beatsCtx.fillStyle = diffColors[song.difficulty] || '#B8B0CC';
+        beatsCtx.font = '7px "Press Start 2P", monospace';
+        beatsCtx.fillText(song.difficulty, 32, y + 38);
+
+        // Note count
+        beatsCtx.fillStyle = '#555270';
+        beatsCtx.textAlign = 'right';
+        beatsCtx.fillText(song.notes.length + ' notes', BW - 32, y + 20);
+        beatsCtx.fillText(song.bpm + ' BPM', BW - 32, y + 38);
+    });
+
+    // Instruction
+    beatsCtx.fillStyle = '#555270';
+    beatsCtx.font = '6px "Press Start 2P", monospace';
+    beatsCtx.textAlign = 'center';
+    beatsCtx.fillText('Tap a song to play  |  D F J K keys', BW / 2, BH - 10);
+}
+
+function drawBeatsResults() {
+    beatsCtx.fillStyle = '#0D0C14';
+    beatsCtx.fillRect(0, 0, BW, BH);
+
+    // Title
+    beatsCtx.fillStyle = '#F0C674';
+    beatsCtx.font = '14px "Press Start 2P", monospace';
+    beatsCtx.textAlign = 'center';
+    beatsCtx.fillText('SONG COMPLETE!', BW / 2, 40);
+
+    // Song name
+    beatsCtx.fillStyle = '#B8B0CC';
+    beatsCtx.font = '8px "Press Start 2P", monospace';
+    beatsCtx.fillText(beats.song.name, BW / 2, 62);
+
+    // Grade
+    const pct = beats.totalNotes > 0 ? (beats.perfects + beats.goods + beats.oks) / beats.totalNotes : 0;
+    let grade, gradeColor;
+    if (pct >= 0.95) { grade = 'S'; gradeColor = '#F0C674'; }
+    else if (pct >= 0.85) { grade = 'A'; gradeColor = '#6FCF97'; }
+    else if (pct >= 0.7) { grade = 'B'; gradeColor = '#5BA4E8'; }
+    else if (pct >= 0.5) { grade = 'C'; gradeColor = '#E8C85B'; }
+    else { grade = 'D'; gradeColor = '#E85B7A'; }
+
+    beatsCtx.fillStyle = gradeColor;
+    beatsCtx.font = '40px "Press Start 2P", monospace';
+    beatsCtx.fillText(grade, BW / 2, 120);
+
+    // Stats
+    beatsCtx.font = '8px "Press Start 2P", monospace';
+    beatsCtx.textAlign = 'left';
+    const sx = 60;
+    let sy = 155;
+    const lineH = 22;
+
+    beatsCtx.fillStyle = '#F0C674';
+    beatsCtx.fillText('Perfect:', sx, sy);
+    beatsCtx.textAlign = 'right';
+    beatsCtx.fillText(beats.perfects + '', BW - sx, sy);
+    sy += lineH;
+
+    beatsCtx.textAlign = 'left';
+    beatsCtx.fillStyle = '#6FCF97';
+    beatsCtx.fillText('Good:', sx, sy);
+    beatsCtx.textAlign = 'right';
+    beatsCtx.fillText(beats.goods + '', BW - sx, sy);
+    sy += lineH;
+
+    beatsCtx.textAlign = 'left';
+    beatsCtx.fillStyle = '#5BA4E8';
+    beatsCtx.fillText('OK:', sx, sy);
+    beatsCtx.textAlign = 'right';
+    beatsCtx.fillText(beats.oks + '', BW - sx, sy);
+    sy += lineH;
+
+    beatsCtx.textAlign = 'left';
+    beatsCtx.fillStyle = '#CC3333';
+    beatsCtx.fillText('Miss:', sx, sy);
+    beatsCtx.textAlign = 'right';
+    beatsCtx.fillText(beats.misses + '', BW - sx, sy);
+    sy += lineH;
+
+    beatsCtx.textAlign = 'left';
+    beatsCtx.fillStyle = '#F5E6D0';
+    beatsCtx.fillText('Max Combo:', sx, sy);
+    beatsCtx.textAlign = 'right';
+    beatsCtx.fillText(beats.maxCombo + 'x', BW - sx, sy);
+    sy += lineH;
+
+    beatsCtx.textAlign = 'left';
+    beatsCtx.fillStyle = '#F5E6D0';
+    beatsCtx.fillText('Score:', sx, sy);
+    beatsCtx.textAlign = 'right';
+    beatsCtx.fillText(Math.floor(beats.score) + '', BW - sx, sy);
+    sy += lineH + 8;
+
+    // Rewards
+    beatsCtx.textAlign = 'center';
+    beatsCtx.fillStyle = '#F0C674';
+    beatsCtx.fillText('+ ' + beats.coinsEarned + ' coins   + ' + Math.min(25, Math.floor(beats.score / 100)) + ' fun', BW / 2, sy);
+
+    // Tap to continue
+    beatsCtx.fillStyle = '#555270';
+    beatsCtx.font = '7px "Press Start 2P", monospace';
+    beatsCtx.fillText('Tap to return to song list', BW / 2, BH - 15);
+}
+
+function showBeatsResults() {
+    beats.phase = 'results';
+
+    // Calculate rewards
+    const pct = beats.totalNotes > 0 ? (beats.perfects + beats.goods + beats.oks) / beats.totalNotes : 0;
+    beats.coinsEarned = Math.floor(pct * 5) + (beats.maxCombo >= 20 ? 3 : 0);
+    const funBoost = Math.min(25, Math.floor(beats.score / 100));
+
+    state.coins += beats.coinsEarned;
+    state.fun = Math.min(100, state.fun + funBoost);
+    updateStatBars();
+    updateCoinDisplay();
+    saveGame();
+}
+
+// Input handling for beats
+function onBeatsCanvasInput(e) {
+    if (currentScreen !== 'beats') return;
+    e.preventDefault();
+
+    if (beats.phase === 'menu') {
+        // Check which song was tapped
+        const rect = beatsCanvas.getBoundingClientRect();
+        const scaleY = BH / rect.height;
+        let clientY;
+        if (e.touches) clientY = e.touches[0].clientY;
+        else clientY = e.clientY;
+        const y = (clientY - rect.top) * scaleY;
+
+        const itemH = 60;
+        const startY = 80;
+        const index = Math.floor((y - startY) / itemH);
+        if (index >= 0 && index < SONGS.length) {
+            startSong(index);
+        }
+        return;
+    }
+
+    if (beats.phase === 'results') {
+        beats.phase = 'menu';
+        return;
+    }
+
+    if (beats.phase === 'playing') {
+        // Determine which lane was tapped based on X position
+        const rect = beatsCanvas.getBoundingClientRect();
+        const scaleX = BW / rect.width;
+        let clientX;
+        if (e.touches) clientX = e.touches[0].clientX;
+        else clientX = e.clientX;
+        const x = (clientX - rect.left) * scaleX;
+        const lane = Math.floor(x / (BW / NUM_LANES));
+        if (lane >= 0 && lane < NUM_LANES) {
+            beatsHitLane(lane);
+        }
+    }
+}
+
+function onBeatsKeyDown(e) {
+    if (currentScreen !== 'beats' || beats.phase !== 'playing') return;
+    const lane = LANE_KEYS.indexOf(e.key.toLowerCase());
+    if (lane >= 0) {
+        e.preventDefault();
+        beatsHitLane(lane);
+    }
+}
+
 // ---- BAR SCENE ----
 const BEAN_NAMES = [
     'Lima Larry', 'Pinto Pete', 'Kidney Karen', 'Black Bean Bob',
@@ -2892,6 +3532,7 @@ function switchScreen(screen) {
         $('bar-screen').classList.toggle('hidden', screen !== 'bar');
         $('discgolf-screen').classList.toggle('hidden', screen !== 'discgolf');
         $('flappy-screen').classList.toggle('hidden', screen !== 'flappy');
+        $('beats-screen').classList.toggle('hidden', screen !== 'beats');
         $('decorate-bar').classList.add('hidden');
     }
 
@@ -2904,6 +3545,8 @@ function switchScreen(screen) {
     if (screen === 'discgolf') startDiscGolf();
     if (screen === 'flappy') startFlappy();
     if (screen !== 'flappy') stopFlappy();
+    if (screen === 'beats') startBeats();
+    if (screen !== 'beats') stopBeats();
 }
 
 // ---- REVIVE ----
@@ -2931,6 +3574,7 @@ function init() {
     initPixelBuffer('disc', discCanvas);
     initPixelBuffer('flappy', flapCanvas);
     initPixelBuffer('bar', barCanvas);
+    initPixelBuffer('beats', beatsCanvas);
 
     // Action buttons
     document.querySelectorAll('.action-btn').forEach(btn => {
@@ -2968,6 +3612,11 @@ function init() {
             flapJump();
         }
     });
+
+    // Bean Beats input
+    beatsCanvas.addEventListener('click', onBeatsCanvasInput);
+    beatsCanvas.addEventListener('touchstart', onBeatsCanvasInput, { passive: false });
+    document.addEventListener('keydown', onBeatsKeyDown);
 
     // Bar buttons
     $('bar-talk-more').addEventListener('click', barTalkMore);
