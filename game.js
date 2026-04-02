@@ -1669,21 +1669,24 @@ function drawDiscFlying() {
 // ---- FLAPPY BEAN ----
 const flapCanvas = $('flappy-canvas');
 let flapCtx = flapCanvas.getContext('2d');
-const FW = flapCanvas.width;
-const FH = flapCanvas.height;
+let FW = flapCanvas.width;
+let FH = flapCanvas.height;
 
 const FLAP = {
     gravity: 0.45,
     jumpForce: -7.5,
     pipeWidth: 52,
-    pipeGap: 140,
+    gapRatio: 0.23,           // pipe gap as fraction of canvas height
     pipeSpeed: 2.5,
     pipeSpawnInterval: 90,    // frames between pipes
-    groundHeight: 60,
+    groundRatio: 0.1,         // ground height as fraction of canvas height
     beanSize: 18,
     coinSize: 14,
     coinChance: 0.4,          // 40% chance a pipe gap has a coin
 };
+
+function flapGround() { return Math.floor(FH * FLAP.groundRatio); }
+function flapGap() { return Math.floor(FH * FLAP.gapRatio); }
 
 let flappy = {
     phase: 'idle',  // idle, playing, dead
@@ -1703,7 +1706,32 @@ let flappy = {
 
 let flappyRAF = null;
 
+function resizeFlappyCanvas() {
+    // Size canvas to fit available space on any screen
+    const screen = $('flappy-screen');
+    const navH = $('nav-bar').offsetHeight || 40;
+    const titleH = $('title-bar').offsetHeight || 40;
+    const availH = window.innerHeight - navH - titleH;
+    const availW = Math.min(400, screen.offsetWidth || 400);
+    // Maintain 2:3 aspect ratio, but fit within available space
+    let cw = availW;
+    let ch = Math.floor(cw * 1.4);
+    if (ch > availH) {
+        ch = availH;
+        cw = Math.floor(ch / 1.4);
+    }
+    flapCanvas.width = cw;
+    flapCanvas.height = ch;
+    FW = cw;
+    FH = ch;
+    // Recreate pixel buffer for new size
+    initPixelBuffer('flappy', flapCanvas);
+}
+
 function startFlappy() {
+    stopFlappy(); // clean up any existing loop
+    resizeFlappyCanvas();
+
     // Load best score
     const saved = localStorage.getItem('flappyBest');
     if (saved) flappy.bestScore = parseInt(saved) || 0;
@@ -1749,8 +1777,12 @@ function flapJump() {
 }
 
 function flappyLoop() {
-    flappyUpdate();
-    flappyDraw();
+    try {
+        flappyUpdate();
+        flappyDraw();
+    } catch (e) {
+        console.error('Flappy error:', e);
+    }
     flappyRAF = requestAnimationFrame(flappyLoop);
 }
 
@@ -1766,7 +1798,7 @@ function flappyUpdate() {
     if (flappy.phase === 'dead') {
         flappy.frameCount++;
         // Bean falls to ground
-        if (flappy.beanY < FH - FLAP.groundHeight - FLAP.beanSize) {
+        if (flappy.beanY < FH - flapGround() - FLAP.beanSize) {
             flappy.beanVY += FLAP.gravity;
             flappy.beanY += flappy.beanVY;
             flappy.beanRotation = Math.min(Math.PI / 2, flappy.beanRotation + 0.08);
@@ -1796,7 +1828,7 @@ function flappyUpdate() {
     }
 
     // Ground collision
-    if (flappy.beanY > FH - FLAP.groundHeight - FLAP.beanSize) {
+    if (flappy.beanY > FH - flapGround() - FLAP.beanSize) {
         flappyDie();
         return;
     }
@@ -1806,8 +1838,9 @@ function flappyUpdate() {
 
     // Spawn pipes
     if (flappy.frameCount % FLAP.pipeSpawnInterval === 0) {
-        const minY = 80;
-        const maxY = FH - FLAP.groundHeight - FLAP.pipeGap - 80;
+        const margin = Math.floor(FH * 0.12);
+        const minY = margin;
+        const maxY = FH - flapGround() - flapGap() - margin;
         const gapY = minY + Math.random() * (maxY - minY);
         flappy.pipes.push({
             x: FW + 10,
@@ -1818,7 +1851,7 @@ function flappyUpdate() {
         if (Math.random() < FLAP.coinChance) {
             flappy.coins.push({
                 x: FW + 10 + FLAP.pipeWidth / 2,
-                y: gapY + FLAP.pipeGap / 2,
+                y: gapY + flapGap() / 2,
                 collected: false,
             });
         }
@@ -1852,7 +1885,7 @@ function flappyUpdate() {
     for (const p of flappy.pipes) {
         if (bx + br > p.x && bx - br < p.x + FLAP.pipeWidth) {
             // Inside pipe column - check if in gap
-            if (by - br < p.gapY || by + br > p.gapY + FLAP.pipeGap) {
+            if (by - br < p.gapY || by + br > p.gapY + flapGap()) {
                 flappyDie();
                 return;
             }
@@ -1893,11 +1926,11 @@ function flappyDie() {
 function flappyDraw() {
     flapCtx = pixelBegin('flappy');
     // Sky
-    const skyGrad = flapCtx.createLinearGradient(0, 0, 0, FH - FLAP.groundHeight);
+    const skyGrad = flapCtx.createLinearGradient(0, 0, 0, FH - flapGround());
     skyGrad.addColorStop(0, '#6BC4E8');
     skyGrad.addColorStop(1, '#A8E0A0');
     flapCtx.fillStyle = skyGrad;
-    flapCtx.fillRect(0, 0, FW, FH - FLAP.groundHeight);
+    flapCtx.fillRect(0, 0, FW, FH - flapGround());
 
     // Clouds (parallax-ish)
     flapCtx.fillStyle = 'rgba(255,255,255,0.6)';
@@ -1914,7 +1947,7 @@ function flappyDraw() {
     flapCtx.fillStyle = '#5C9F5C';
     for (let i = 0; i < 12; i++) {
         const tx = ((i * 45) - cloudOffset * 0.5) % (FW + 50) - 25;
-        const ty = FH - FLAP.groundHeight - 10;
+        const ty = FH - flapGround() - 10;
         flapCtx.beginPath();
         flapCtx.arc(tx, ty, 20 + (i % 3) * 5, 0, Math.PI * 2);
         flapCtx.fill();
@@ -1952,15 +1985,15 @@ function flappyDraw() {
 
     // Ground
     flapCtx.fillStyle = '#8B6538';
-    flapCtx.fillRect(0, FH - FLAP.groundHeight, FW, FLAP.groundHeight);
+    flapCtx.fillRect(0, FH - flapGround(), FW, flapGround());
     // Ground top (grass)
     flapCtx.fillStyle = '#4A8F4A';
-    flapCtx.fillRect(0, FH - FLAP.groundHeight, FW, 12);
+    flapCtx.fillRect(0, FH - flapGround(), FW, 12);
     // Ground stripes (scrolling)
     flapCtx.fillStyle = '#7A5830';
     for (let i = -1; i < FW / 24 + 2; i++) {
         const gx = i * 24 - (flappy.groundX % 24);
-        flapCtx.fillRect(gx, FH - FLAP.groundHeight + 14, 12, FLAP.groundHeight - 14);
+        flapCtx.fillRect(gx, FH - flapGround() + 14, 12, flapGround() - 14);
     }
 
     // Bean
@@ -2077,7 +2110,7 @@ function flappyDraw() {
 function drawFlappyPipe(pipe) {
     const x = pipe.x;
     const gapTop = pipe.gapY;
-    const gapBottom = pipe.gapY + FLAP.pipeGap;
+    const gapBottom = pipe.gapY + flapGap();
     const pw = FLAP.pipeWidth;
 
     // Top pipe (tree trunk hanging down)
@@ -2107,11 +2140,11 @@ function drawFlappyPipe(pipe) {
 
     // Bottom pipe (tree trunk going up)
     flapCtx.fillStyle = '#6B4226';
-    flapCtx.fillRect(x, gapBottom, pw, FH - FLAP.groundHeight - gapBottom);
+    flapCtx.fillRect(x, gapBottom, pw, FH - flapGround() - gapBottom);
     // Bark texture
     flapCtx.fillStyle = '#5C3820';
-    flapCtx.fillRect(x + 4, gapBottom, 6, FH - FLAP.groundHeight - gapBottom);
-    flapCtx.fillRect(x + pw - 12, gapBottom, 6, FH - FLAP.groundHeight - gapBottom);
+    flapCtx.fillRect(x + 4, gapBottom, 6, FH - flapGround() - gapBottom);
+    flapCtx.fillRect(x + pw - 12, gapBottom, 6, FH - flapGround() - gapBottom);
     // Lip at top of bottom pipe
     flapCtx.fillStyle = '#4A8F4A';
     flapCtx.fillRect(x - 6, gapBottom, pw + 12, 20);
@@ -2133,7 +2166,7 @@ function drawFlappyPipe(pipe) {
     flapCtx.strokeStyle = '#3D2815';
     flapCtx.lineWidth = 2;
     flapCtx.strokeRect(x, 0, pw, gapTop);
-    flapCtx.strokeRect(x, gapBottom, pw, FH - FLAP.groundHeight - gapBottom);
+    flapCtx.strokeRect(x, gapBottom, pw, FH - flapGround() - gapBottom);
 }
 
 function drawFlappyBean() {

@@ -787,13 +787,21 @@ body {
     display: none !important;
 }
 
+#flappy-screen {
+    overflow: hidden;
+}
+
 #flappy-canvas {
     width: 100%;
     max-width: 400px;
+    flex: 1;
+    min-height: 0;
     image-rendering: -webkit-optimize-contrast;
     image-rendering: pixelated;
     image-rendering: crisp-edges;
     cursor: pointer;
+    touch-action: none;
+    -webkit-touch-callout: none;
 }
 
 /* ===== PASSED OUT OVERLAY ===== */
