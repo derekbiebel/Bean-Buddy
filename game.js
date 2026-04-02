@@ -92,9 +92,40 @@ let state = {
 // ---- DOM REFS ----
 const $ = id => document.getElementById(id);
 const canvas = $('room-canvas');
-const ctx = canvas.getContext('2d');
+let ctx = canvas.getContext('2d');
 const discCanvas = $('disc-canvas');
-const discCtx = discCanvas.getContext('2d');
+let discCtx = discCanvas.getContext('2d');
+
+// ---- PIXEL ART RENDERING ----
+// Draws to a half-res offscreen canvas, then blits scaled up for chunky pixels
+const PIXEL_SCALE = 2;
+const pixelBuffers = {};
+
+function initPixelBuffer(name, realCanvas) {
+    const off = document.createElement('canvas');
+    off.width = Math.floor(realCanvas.width / PIXEL_SCALE);
+    off.height = Math.floor(realCanvas.height / PIXEL_SCALE);
+    const offCtx = off.getContext('2d');
+    offCtx.imageSmoothingEnabled = false;
+    pixelBuffers[name] = { off, offCtx, realCanvas };
+}
+
+function pixelBegin(name) {
+    const buf = pixelBuffers[name];
+    buf.offCtx.clearRect(0, 0, buf.off.width, buf.off.height);
+    buf.offCtx.save();
+    buf.offCtx.scale(1 / PIXEL_SCALE, 1 / PIXEL_SCALE);
+    return buf.offCtx;
+}
+
+function pixelEnd(name) {
+    const buf = pixelBuffers[name];
+    buf.offCtx.restore();
+    const realCtx = buf.realCanvas.getContext('2d');
+    realCtx.imageSmoothingEnabled = false;
+    realCtx.clearRect(0, 0, buf.realCanvas.width, buf.realCanvas.height);
+    realCtx.drawImage(buf.off, 0, 0, buf.realCanvas.width, buf.realCanvas.height);
+}
 
 // ---- SAVE / LOAD ----
 function saveGame() {
@@ -212,20 +243,20 @@ function gameTick() {
 
 // ---- RENDERING ----
 const COLORS = {
-    floorLight: '#D4A76A',
-    floorDark: '#C49658',
-    wallLeft: '#B88B50',
-    wallRight: '#A67B44',
-    wallTrim: '#8B6538',
-    windowFrame: '#F5E6D0',
-    windowGlass: '#87CEEB',
-    sky: '#9FBFB0',
+    floorLight: '#C89858',
+    floorDark: '#B08048',
+    wallLeft: '#A87840',
+    wallRight: '#987038',
+    wallTrim: '#786030',
+    windowFrame: '#E8D8C0',
+    windowGlass: '#70A8C8',
+    sky: '#88A898',
 };
 
 function drawRoom() {
+    ctx = pixelBegin('room');
     const w = canvas.width;
     const h = canvas.height;
-    ctx.clearRect(0, 0, w, h);
 
     // Background (sage green like reference)
     ctx.fillStyle = COLORS.sky;
@@ -360,6 +391,8 @@ function drawRoom() {
 
     // Draw the bean!
     drawBean(cx, floorY, depth);
+
+    pixelEnd('room');
 }
 
 function drawFurniture() {
@@ -1171,7 +1204,9 @@ function startHole() {
     $('power-bar-fill').style.width = '0%';
     $('aim-marker').style.left = '50%';
 
+    discCtx = pixelBegin('disc');
     drawDiscCourse();
+    pixelEnd('disc');
     startAimLoop();
 }
 
@@ -1302,8 +1337,10 @@ function throwDisc() {
             if (discState.discVY) discState.discVY *= 0.92;
         }
 
+        discCtx = pixelBegin('disc');
         drawDiscCourse();
         drawDiscFlying();
+        pixelEnd('disc');
 
         if (frame >= totalFrames) {
             clearInterval(throwAnim);
@@ -1450,7 +1487,6 @@ function drawDiscCourse() {
     const w = discCanvas.width;
     const h = discCanvas.height;
     const hole = discState.holes[discState.holeIndex];
-    discCtx.clearRect(0, 0, w, h);
 
     // Sky gradient - varies by hole index for visual variety
     const skyColors = ['#87CEEB', '#A0C4E8', '#E8C4A0', '#C4D8E8', '#B8D8B8'];
@@ -1630,6 +1666,575 @@ function drawDiscFlying() {
     discCtx.stroke();
 }
 
+// ---- FLAPPY BEAN ----
+const flapCanvas = $('flappy-canvas');
+let flapCtx = flapCanvas.getContext('2d');
+const FW = flapCanvas.width;
+const FH = flapCanvas.height;
+
+const FLAP = {
+    gravity: 0.45,
+    jumpForce: -7.5,
+    pipeWidth: 52,
+    pipeGap: 140,
+    pipeSpeed: 2.5,
+    pipeSpawnInterval: 90,    // frames between pipes
+    groundHeight: 60,
+    beanSize: 18,
+    coinSize: 14,
+    coinChance: 0.4,          // 40% chance a pipe gap has a coin
+};
+
+let flappy = {
+    phase: 'idle',  // idle, playing, dead
+    beanY: 0,
+    beanVY: 0,
+    beanRotation: 0,
+    pipes: [],
+    coins: [],
+    frameCount: 0,
+    score: 0,
+    bestScore: 0,
+    coinsCollected: 0,
+    groundX: 0,
+    flapAnim: 0,
+    deathY: 0,
+};
+
+let flappyRAF = null;
+
+function startFlappy() {
+    // Load best score
+    const saved = localStorage.getItem('flappyBest');
+    if (saved) flappy.bestScore = parseInt(saved) || 0;
+
+    resetFlappy();
+    flappyLoop();
+}
+
+function stopFlappy() {
+    if (flappyRAF) {
+        cancelAnimationFrame(flappyRAF);
+        flappyRAF = null;
+    }
+}
+
+function resetFlappy() {
+    flappy.phase = 'idle';
+    flappy.beanY = FH * 0.4;
+    flappy.beanVY = 0;
+    flappy.beanRotation = 0;
+    flappy.pipes = [];
+    flappy.coins = [];
+    flappy.frameCount = 0;
+    flappy.score = 0;
+    flappy.coinsCollected = 0;
+    flappy.groundX = 0;
+}
+
+function flapJump() {
+    if (flappy.phase === 'idle') {
+        flappy.phase = 'playing';
+        flappy.beanVY = FLAP.jumpForce;
+        flappy.flapAnim = 8;
+    } else if (flappy.phase === 'playing') {
+        flappy.beanVY = FLAP.jumpForce;
+        flappy.flapAnim = 8;
+    } else if (flappy.phase === 'dead') {
+        // Restart after short delay
+        if (flappy.frameCount > 30) {
+            resetFlappy();
+        }
+    }
+}
+
+function flappyLoop() {
+    flappyUpdate();
+    flappyDraw();
+    flappyRAF = requestAnimationFrame(flappyLoop);
+}
+
+function flappyUpdate() {
+    if (flappy.phase === 'idle') {
+        // Bean hovers gently
+        flappy.beanY = FH * 0.4 + Math.sin(flappy.frameCount * 0.05) * 12;
+        flappy.frameCount++;
+        flappy.groundX = (flappy.groundX + 1) % 24;
+        return;
+    }
+
+    if (flappy.phase === 'dead') {
+        flappy.frameCount++;
+        // Bean falls to ground
+        if (flappy.beanY < FH - FLAP.groundHeight - FLAP.beanSize) {
+            flappy.beanVY += FLAP.gravity;
+            flappy.beanY += flappy.beanVY;
+            flappy.beanRotation = Math.min(Math.PI / 2, flappy.beanRotation + 0.08);
+        }
+        return;
+    }
+
+    // Playing
+    flappy.frameCount++;
+    flappy.flapAnim = Math.max(0, flappy.flapAnim - 1);
+
+    // Gravity
+    flappy.beanVY += FLAP.gravity;
+    flappy.beanY += flappy.beanVY;
+
+    // Rotation based on velocity
+    if (flappy.beanVY < 0) {
+        flappy.beanRotation = Math.max(-0.5, flappy.beanRotation - 0.08);
+    } else {
+        flappy.beanRotation = Math.min(Math.PI / 4, flappy.beanRotation + 0.03);
+    }
+
+    // Ceiling
+    if (flappy.beanY < FLAP.beanSize) {
+        flappy.beanY = FLAP.beanSize;
+        flappy.beanVY = 0;
+    }
+
+    // Ground collision
+    if (flappy.beanY > FH - FLAP.groundHeight - FLAP.beanSize) {
+        flappyDie();
+        return;
+    }
+
+    // Scroll ground
+    flappy.groundX = (flappy.groundX + FLAP.pipeSpeed) % 24;
+
+    // Spawn pipes
+    if (flappy.frameCount % FLAP.pipeSpawnInterval === 0) {
+        const minY = 80;
+        const maxY = FH - FLAP.groundHeight - FLAP.pipeGap - 80;
+        const gapY = minY + Math.random() * (maxY - minY);
+        flappy.pipes.push({
+            x: FW + 10,
+            gapY: gapY,
+            scored: false,
+        });
+        // Maybe spawn a coin in the gap
+        if (Math.random() < FLAP.coinChance) {
+            flappy.coins.push({
+                x: FW + 10 + FLAP.pipeWidth / 2,
+                y: gapY + FLAP.pipeGap / 2,
+                collected: false,
+            });
+        }
+    }
+
+    // Move pipes
+    flappy.pipes.forEach(p => {
+        p.x -= FLAP.pipeSpeed;
+        // Score when passing
+        if (!p.scored && p.x + FLAP.pipeWidth < 70) {
+            p.scored = true;
+            flappy.score++;
+        }
+    });
+
+    // Move coins
+    flappy.coins.forEach(c => {
+        c.x -= FLAP.pipeSpeed;
+    });
+
+    // Remove off-screen pipes/coins
+    flappy.pipes = flappy.pipes.filter(p => p.x > -FLAP.pipeWidth - 10);
+    flappy.coins = flappy.coins.filter(c => c.x > -20 && !c.collected);
+
+    // Collision detection
+    const bx = 70;
+    const by = flappy.beanY;
+    const br = FLAP.beanSize - 3; // slightly forgiving hitbox
+
+    // Pipe collision
+    for (const p of flappy.pipes) {
+        if (bx + br > p.x && bx - br < p.x + FLAP.pipeWidth) {
+            // Inside pipe column - check if in gap
+            if (by - br < p.gapY || by + br > p.gapY + FLAP.pipeGap) {
+                flappyDie();
+                return;
+            }
+        }
+    }
+
+    // Coin collection
+    for (const c of flappy.coins) {
+        if (!c.collected) {
+            const dx = bx - c.x;
+            const dy = by - c.y;
+            if (Math.sqrt(dx * dx + dy * dy) < FLAP.beanSize + FLAP.coinSize / 2) {
+                c.collected = true;
+                flappy.coinsCollected++;
+            }
+        }
+    }
+}
+
+function flappyDie() {
+    flappy.phase = 'dead';
+    flappy.frameCount = 0;
+    flappy.beanVY = -4; // little bounce up on death
+
+    // Update best score
+    if (flappy.score > flappy.bestScore) {
+        flappy.bestScore = flappy.score;
+        localStorage.setItem('flappyBest', flappy.bestScore);
+    }
+
+    // Award coins and fun to the main game
+    state.coins += flappy.coinsCollected;
+    const funBoost = Math.min(30, flappy.score * 2);
+    state.fun = Math.min(100, state.fun + funBoost);
+    if (funBoost > 0 || flappy.coinsCollected > 0) saveGame();
+}
+
+function flappyDraw() {
+    flapCtx = pixelBegin('flappy');
+    // Sky
+    const skyGrad = flapCtx.createLinearGradient(0, 0, 0, FH - FLAP.groundHeight);
+    skyGrad.addColorStop(0, '#6BC4E8');
+    skyGrad.addColorStop(1, '#A8E0A0');
+    flapCtx.fillStyle = skyGrad;
+    flapCtx.fillRect(0, 0, FW, FH - FLAP.groundHeight);
+
+    // Clouds (parallax-ish)
+    flapCtx.fillStyle = 'rgba(255,255,255,0.6)';
+    const cloudOffset = flappy.phase === 'idle' ? flappy.frameCount * 0.3 : flappy.frameCount * FLAP.pipeSpeed * 0.3;
+    for (let i = 0; i < 5; i++) {
+        const cx = ((i * 110 + 30) - cloudOffset * 0.3) % (FW + 80) - 40;
+        const cy = 40 + i * 25 + Math.sin(i * 2.5) * 20;
+        flapCtx.beginPath();
+        flapCtx.ellipse(cx, cy, 30 + i * 5, 10 + i * 2, 0, 0, Math.PI * 2);
+        flapCtx.fill();
+    }
+
+    // Distant trees (background)
+    flapCtx.fillStyle = '#5C9F5C';
+    for (let i = 0; i < 12; i++) {
+        const tx = ((i * 45) - cloudOffset * 0.5) % (FW + 50) - 25;
+        const ty = FH - FLAP.groundHeight - 10;
+        flapCtx.beginPath();
+        flapCtx.arc(tx, ty, 20 + (i % 3) * 5, 0, Math.PI * 2);
+        flapCtx.fill();
+    }
+
+    // Pipes (tree trunks with foliage)
+    flappy.pipes.forEach(p => {
+        drawFlappyPipe(p);
+    });
+
+    // Coins
+    flappy.coins.forEach(c => {
+        if (c.collected) return;
+        const bobble = Math.sin(flappy.frameCount * 0.1 + c.x * 0.05) * 3;
+        // Coin glow
+        flapCtx.fillStyle = 'rgba(240, 198, 116, 0.3)';
+        flapCtx.beginPath();
+        flapCtx.arc(c.x, c.y + bobble, FLAP.coinSize, 0, Math.PI * 2);
+        flapCtx.fill();
+        // Coin body
+        flapCtx.fillStyle = '#F0C674';
+        flapCtx.beginPath();
+        flapCtx.arc(c.x, c.y + bobble, FLAP.coinSize * 0.65, 0, Math.PI * 2);
+        flapCtx.fill();
+        flapCtx.strokeStyle = '#C4A043';
+        flapCtx.lineWidth = 2;
+        flapCtx.stroke();
+        // Star on coin
+        flapCtx.fillStyle = '#C4A043';
+        flapCtx.font = '10px sans-serif';
+        flapCtx.textAlign = 'center';
+        flapCtx.textBaseline = 'middle';
+        flapCtx.fillText('★', c.x, c.y + bobble + 1);
+    });
+
+    // Ground
+    flapCtx.fillStyle = '#8B6538';
+    flapCtx.fillRect(0, FH - FLAP.groundHeight, FW, FLAP.groundHeight);
+    // Ground top (grass)
+    flapCtx.fillStyle = '#4A8F4A';
+    flapCtx.fillRect(0, FH - FLAP.groundHeight, FW, 12);
+    // Ground stripes (scrolling)
+    flapCtx.fillStyle = '#7A5830';
+    for (let i = -1; i < FW / 24 + 2; i++) {
+        const gx = i * 24 - (flappy.groundX % 24);
+        flapCtx.fillRect(gx, FH - FLAP.groundHeight + 14, 12, FLAP.groundHeight - 14);
+    }
+
+    // Bean
+    drawFlappyBean();
+
+    // Score display
+    flapCtx.fillStyle = 'white';
+    flapCtx.strokeStyle = '#3D2B1A';
+    flapCtx.lineWidth = 4;
+    flapCtx.font = '32px "Press Start 2P", monospace';
+    flapCtx.textAlign = 'center';
+    flapCtx.textBaseline = 'top';
+    flapCtx.strokeText(flappy.score, FW / 2, 30);
+    flapCtx.fillText(flappy.score, FW / 2, 30);
+
+    // Coin counter
+    flapCtx.font = '12px "Press Start 2P", monospace';
+    flapCtx.fillStyle = '#F0C674';
+    flapCtx.strokeStyle = '#3D2B1A';
+    flapCtx.lineWidth = 3;
+    flapCtx.textAlign = 'left';
+    flapCtx.strokeText('★ ' + flappy.coinsCollected, 12, 12);
+    flapCtx.fillText('★ ' + flappy.coinsCollected, 12, 12);
+
+    // Idle screen
+    if (flappy.phase === 'idle') {
+        // Title
+        flapCtx.fillStyle = '#F0C674';
+        flapCtx.strokeStyle = '#5C4530';
+        flapCtx.lineWidth = 4;
+        flapCtx.font = '20px "Press Start 2P", monospace';
+        flapCtx.textAlign = 'center';
+        flapCtx.strokeText('FLAPPY BEAN', FW / 2, FH * 0.2);
+        flapCtx.fillText('FLAPPY BEAN', FW / 2, FH * 0.2);
+
+        // Tap prompt
+        const blink = Math.sin(flappy.frameCount * 0.06) > 0;
+        if (blink) {
+            flapCtx.fillStyle = '#F5E6D0';
+            flapCtx.font = '10px "Press Start 2P", monospace';
+            flapCtx.fillText('TAP TO START', FW / 2, FH * 0.6);
+        }
+
+        // Best score
+        if (flappy.bestScore > 0) {
+            flapCtx.fillStyle = '#F5E6D0';
+            flapCtx.font = '9px "Press Start 2P", monospace';
+            flapCtx.fillText('Best: ' + flappy.bestScore, FW / 2, FH * 0.67);
+        }
+    }
+
+    // Death screen
+    if (flappy.phase === 'dead' && flappy.frameCount > 20) {
+        // Overlay
+        flapCtx.fillStyle = 'rgba(0,0,0,0.4)';
+        flapCtx.fillRect(0, 0, FW, FH);
+
+        // Score card
+        const cardX = FW / 2 - 110;
+        const cardY = FH * 0.25;
+        const cardW = 220;
+        const cardH = 180;
+
+        // Card background
+        flapCtx.fillStyle = '#3D3A4E';
+        flapCtx.fillRect(cardX, cardY, cardW, cardH);
+        flapCtx.strokeStyle = '#F0C674';
+        flapCtx.lineWidth = 4;
+        flapCtx.strokeRect(cardX, cardY, cardW, cardH);
+
+        // Game over
+        flapCtx.fillStyle = '#F0C674';
+        flapCtx.font = '14px "Press Start 2P", monospace';
+        flapCtx.textAlign = 'center';
+        flapCtx.fillText('GAME OVER', FW / 2, cardY + 30);
+
+        // Score
+        flapCtx.fillStyle = '#F5E6D0';
+        flapCtx.font = '10px "Press Start 2P", monospace';
+        flapCtx.fillText('Score: ' + flappy.score, FW / 2, cardY + 60);
+
+        // Best
+        flapCtx.fillStyle = '#B8B0CC';
+        flapCtx.fillText('Best: ' + flappy.bestScore, FW / 2, cardY + 82);
+
+        // Coins earned
+        flapCtx.fillStyle = '#F0C674';
+        flapCtx.fillText('★ ' + flappy.coinsCollected + ' coins earned', FW / 2, cardY + 108);
+
+        // Fun earned
+        const funEarned = Math.min(30, flappy.score * 2);
+        flapCtx.fillStyle = '#6FCF97';
+        flapCtx.fillText('+' + funEarned + ' fun', FW / 2, cardY + 128);
+
+        // New best indicator
+        if (flappy.score === flappy.bestScore && flappy.score > 0) {
+            flapCtx.fillStyle = '#FF6B6B';
+            flapCtx.font = '8px "Press Start 2P", monospace';
+            flapCtx.fillText('NEW BEST!', FW / 2, cardY + 150);
+        }
+
+        // Tap to retry
+        const blink = Math.sin(flappy.frameCount * 0.08) > 0;
+        if (blink) {
+            flapCtx.fillStyle = '#B8B0CC';
+            flapCtx.font = '8px "Press Start 2P", monospace';
+            flapCtx.fillText('TAP TO RETRY', FW / 2, cardY + 168);
+        }
+    }
+
+    pixelEnd('flappy');
+}
+
+function drawFlappyPipe(pipe) {
+    const x = pipe.x;
+    const gapTop = pipe.gapY;
+    const gapBottom = pipe.gapY + FLAP.pipeGap;
+    const pw = FLAP.pipeWidth;
+
+    // Top pipe (tree trunk hanging down)
+    // Trunk
+    flapCtx.fillStyle = '#6B4226';
+    flapCtx.fillRect(x, 0, pw, gapTop);
+    // Bark texture
+    flapCtx.fillStyle = '#5C3820';
+    flapCtx.fillRect(x + 4, 0, 6, gapTop);
+    flapCtx.fillRect(x + pw - 12, 0, 6, gapTop);
+    // Lip at bottom of top pipe
+    flapCtx.fillStyle = '#4A8F4A';
+    flapCtx.fillRect(x - 6, gapTop - 20, pw + 12, 20);
+    // Foliage on lip
+    flapCtx.fillStyle = '#3D7D3D';
+    for (let i = 0; i < 4; i++) {
+        flapCtx.beginPath();
+        flapCtx.arc(x + 5 + i * 15, gapTop - 14, 10, 0, Math.PI * 2);
+        flapCtx.fill();
+    }
+    flapCtx.fillStyle = '#5CAF5C';
+    for (let i = 0; i < 3; i++) {
+        flapCtx.beginPath();
+        flapCtx.arc(x + 12 + i * 15, gapTop - 18, 8, 0, Math.PI * 2);
+        flapCtx.fill();
+    }
+
+    // Bottom pipe (tree trunk going up)
+    flapCtx.fillStyle = '#6B4226';
+    flapCtx.fillRect(x, gapBottom, pw, FH - FLAP.groundHeight - gapBottom);
+    // Bark texture
+    flapCtx.fillStyle = '#5C3820';
+    flapCtx.fillRect(x + 4, gapBottom, 6, FH - FLAP.groundHeight - gapBottom);
+    flapCtx.fillRect(x + pw - 12, gapBottom, 6, FH - FLAP.groundHeight - gapBottom);
+    // Lip at top of bottom pipe
+    flapCtx.fillStyle = '#4A8F4A';
+    flapCtx.fillRect(x - 6, gapBottom, pw + 12, 20);
+    // Foliage on lip
+    flapCtx.fillStyle = '#3D7D3D';
+    for (let i = 0; i < 4; i++) {
+        flapCtx.beginPath();
+        flapCtx.arc(x + 5 + i * 15, gapBottom + 14, 10, 0, Math.PI * 2);
+        flapCtx.fill();
+    }
+    flapCtx.fillStyle = '#5CAF5C';
+    for (let i = 0; i < 3; i++) {
+        flapCtx.beginPath();
+        flapCtx.arc(x + 12 + i * 15, gapBottom + 18, 8, 0, Math.PI * 2);
+        flapCtx.fill();
+    }
+
+    // Outline
+    flapCtx.strokeStyle = '#3D2815';
+    flapCtx.lineWidth = 2;
+    flapCtx.strokeRect(x, 0, pw, gapTop);
+    flapCtx.strokeRect(x, gapBottom, pw, FH - FLAP.groundHeight - gapBottom);
+}
+
+function drawFlappyBean() {
+    const bx = 70;
+    const by = flappy.beanY;
+
+    flapCtx.save();
+    flapCtx.translate(bx, by);
+    flapCtx.rotate(flappy.beanRotation);
+
+    // Shadow (subtle)
+    flapCtx.fillStyle = 'rgba(0,0,0,0.1)';
+    flapCtx.beginPath();
+    flapCtx.ellipse(2, 2, FLAP.beanSize, FLAP.beanSize * 0.8, 0, 0, Math.PI * 2);
+    flapCtx.fill();
+
+    // Body
+    const avgStat = (state.hunger + state.thirst + state.social + state.fun) / 4;
+    let bodyColor = avgStat > 50 ? '#8B6B4A' : '#A0825E';
+    if (flappy.phase === 'dead') bodyColor = '#B89878';
+
+    flapCtx.fillStyle = bodyColor;
+    flapCtx.beginPath();
+    flapCtx.ellipse(0, 0, FLAP.beanSize, FLAP.beanSize * 0.85, 0, 0, Math.PI * 2);
+    flapCtx.fill();
+
+    // Highlight
+    flapCtx.fillStyle = 'rgba(255,255,255,0.15)';
+    flapCtx.beginPath();
+    flapCtx.ellipse(-4, -5, FLAP.beanSize * 0.4, FLAP.beanSize * 0.55, -0.3, 0, 0, Math.PI * 2);
+    flapCtx.fill();
+
+    // Outline
+    flapCtx.strokeStyle = '#5C4530';
+    flapCtx.lineWidth = 2;
+    flapCtx.beginPath();
+    flapCtx.ellipse(0, 0, FLAP.beanSize, FLAP.beanSize * 0.85, 0, 0, Math.PI * 2);
+    flapCtx.stroke();
+
+    // Wing
+    const wingFlap = flappy.flapAnim > 0 ? -0.6 : 0.2;
+    flapCtx.fillStyle = bodyColor;
+    flapCtx.strokeStyle = '#5C4530';
+    flapCtx.lineWidth = 1.5;
+    flapCtx.save();
+    flapCtx.translate(-6, 4);
+    flapCtx.rotate(wingFlap);
+    flapCtx.beginPath();
+    flapCtx.ellipse(0, 0, 12, 6, -0.4, 0, Math.PI * 2);
+    flapCtx.fill();
+    flapCtx.stroke();
+    flapCtx.restore();
+
+    if (flappy.phase === 'dead') {
+        // X eyes
+        flapCtx.strokeStyle = '#3D2B1A';
+        flapCtx.lineWidth = 2;
+        flapCtx.beginPath();
+        flapCtx.moveTo(-7, -7); flapCtx.lineTo(-2, -2);
+        flapCtx.moveTo(-2, -7); flapCtx.lineTo(-7, -2);
+        flapCtx.moveTo(3, -7); flapCtx.lineTo(8, -2);
+        flapCtx.moveTo(8, -7); flapCtx.lineTo(3, -2);
+        flapCtx.stroke();
+    } else {
+        // Eyes
+        flapCtx.fillStyle = 'white';
+        flapCtx.beginPath();
+        flapCtx.ellipse(-5, -4, 5, 5.5, 0, 0, Math.PI * 2);
+        flapCtx.ellipse(5, -4, 5, 5.5, 0, 0, Math.PI * 2);
+        flapCtx.fill();
+        // Pupils (look forward/up when flapping)
+        const pupilOff = flappy.beanVY < -2 ? -1.5 : 1;
+        flapCtx.fillStyle = '#3D2B1A';
+        flapCtx.beginPath();
+        flapCtx.arc(-4 + 1.5, -4 + pupilOff, 2.5, 0, Math.PI * 2);
+        flapCtx.arc(6 + 1.5, -4 + pupilOff, 2.5, 0, Math.PI * 2);
+        flapCtx.fill();
+    }
+
+    // Beak
+    flapCtx.fillStyle = '#E8A43B';
+    flapCtx.beginPath();
+    flapCtx.moveTo(FLAP.beanSize - 4, -2);
+    flapCtx.lineTo(FLAP.beanSize + 8, 1);
+    flapCtx.lineTo(FLAP.beanSize - 4, 4);
+    flapCtx.closePath();
+    flapCtx.fill();
+    flapCtx.strokeStyle = '#C4882A';
+    flapCtx.lineWidth = 1;
+    flapCtx.stroke();
+
+    flapCtx.restore();
+}
+
+// Flappy input handlers
+function onFlappyInput(e) {
+    if (currentScreen !== 'flappy') return;
+    e.preventDefault();
+    flapJump();
+}
+
 // ---- BAR SCENE ----
 const BEAN_NAMES = [
     'Lima Larry', 'Pinto Pete', 'Kidney Karen', 'Black Bean Bob',
@@ -1717,7 +2322,7 @@ const CONVERSATIONS = {
 };
 
 const barCanvas = $('bar-canvas');
-const barCtx = barCanvas.getContext('2d');
+let barCtx = barCanvas.getContext('2d');
 
 let barState = {
     npcs: [],
@@ -1745,9 +2350,9 @@ function enterBar() {
 }
 
 function drawBar() {
+    barCtx = pixelBegin('bar');
     const w = barCanvas.width;
     const h = barCanvas.height;
-    barCtx.clearRect(0, 0, w, h);
 
     // Bar background - warm dark interior
     barCtx.fillStyle = '#2A1F14';
@@ -1885,6 +2490,8 @@ function drawBar() {
         barCtx.fillStyle = 'rgba(255,255,255,0.3)';
         barCtx.fillRect(dx + 1, dy - 9, 3, 8);
     });
+
+    pixelEnd('bar');
 }
 
 function drawBarBean(x, y, npc) {
@@ -2251,6 +2858,7 @@ function switchScreen(screen) {
         $('shop-screen').classList.toggle('hidden', screen !== 'shop');
         $('bar-screen').classList.toggle('hidden', screen !== 'bar');
         $('discgolf-screen').classList.toggle('hidden', screen !== 'discgolf');
+        $('flappy-screen').classList.toggle('hidden', screen !== 'flappy');
         $('decorate-bar').classList.add('hidden');
     }
 
@@ -2261,6 +2869,8 @@ function switchScreen(screen) {
 
     if (screen === 'shop') renderShop();
     if (screen === 'discgolf') startDiscGolf();
+    if (screen === 'flappy') startFlappy();
+    if (screen !== 'flappy') stopFlappy();
 }
 
 // ---- REVIVE ----
@@ -2282,6 +2892,12 @@ function reviveBean() {
 // ---- EVENT LISTENERS ----
 function init() {
     loadGame();
+
+    // Initialize pixel art buffers
+    initPixelBuffer('room', canvas);
+    initPixelBuffer('disc', discCanvas);
+    initPixelBuffer('flappy', flapCanvas);
+    initPixelBuffer('bar', barCanvas);
 
     // Action buttons
     document.querySelectorAll('.action-btn').forEach(btn => {
@@ -2308,6 +2924,16 @@ function init() {
             btn.classList.add('selected');
             discState.disc = btn.dataset.disc;
         });
+    });
+
+    // Flappy Bean input
+    flapCanvas.addEventListener('click', onFlappyInput);
+    flapCanvas.addEventListener('touchstart', onFlappyInput, { passive: false });
+    document.addEventListener('keydown', (e) => {
+        if (e.code === 'Space' && currentScreen === 'flappy') {
+            e.preventDefault();
+            flapJump();
+        }
     });
 
     // Bar buttons

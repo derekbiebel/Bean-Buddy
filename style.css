@@ -771,6 +771,27 @@ body {
     cursor: pointer;
 }
 
+/* ===== FLAPPY BEAN ===== */
+#flappy-screen {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    background: #1A1825;
+    padding: 0;
+}
+
+#flappy-screen.hidden {
+    display: none !important;
+}
+
+#flappy-canvas {
+    width: 100%;
+    max-width: 400px;
+    image-rendering: pixelated;
+    image-rendering: crisp-edges;
+    cursor: pointer;
+}
+
 /* ===== PASSED OUT OVERLAY ===== */
 #passed-out-overlay {
     position: fixed;
