@@ -2163,7 +2163,7 @@ function drawFlappyBean() {
     // Highlight
     flapCtx.fillStyle = 'rgba(255,255,255,0.15)';
     flapCtx.beginPath();
-    flapCtx.ellipse(-4, -5, FLAP.beanSize * 0.4, FLAP.beanSize * 0.55, -0.3, 0, 0, Math.PI * 2);
+    flapCtx.ellipse(-4, -5, FLAP.beanSize * 0.4, FLAP.beanSize * 0.55, -0.3, 0, Math.PI * 2);
     flapCtx.fill();
 
     // Outline
