@@ -266,21 +266,61 @@ const COLORS = {
     sky: '#88A898',
 };
 
-const ROOM_SIZES = [
-    // level: { canvasW, canvasH }
-    { w: 400, h: 350 },  // level 1 (starter)
-    { w: 480, h: 400 },  // level 2
-    { w: 560, h: 450 },  // level 3
-    { w: 640, h: 500 },  // level 4
-    { w: 720, h: 550 },  // level 5
-    { w: 800, h: 600 },  // level 6 (mansion)
+const ROOM_LEVELS = [
+    {   // Level 1: Starter Pad
+        w: 400, h: 350, name: 'Starter Pad',
+        sky: '#88A898', floorLight: '#C89858', floorDark: '#B08048',
+        wallL: '#A87840', wallR: '#987038', trim: '#786030',
+        windows: 1, paintings: 0, hasRug: false, hasCeiling: false,
+        floorType: 'wood',
+    },
+    {   // Level 2: Cozy Flat
+        w: 480, h: 400, name: 'Cozy Flat',
+        sky: '#7A9888', floorLight: '#C4935A', floorDark: '#A87D48',
+        wallL: '#B08050', wallR: '#A07040', trim: '#6B5030',
+        windows: 1, paintings: 1, hasRug: true, hasCeiling: false,
+        floorType: 'wood',
+    },
+    {   // Level 3: Nice Digs
+        w: 560, h: 450, name: 'Nice Digs',
+        sky: '#8AACB8', floorLight: '#D4A868', floorDark: '#B89050',
+        wallL: '#C8A878', wallR: '#B89868', trim: '#8B7048',
+        windows: 2, paintings: 1, hasRug: true, hasCeiling: false,
+        floorType: 'tile',
+    },
+    {   // Level 4: Spacious Suite
+        w: 640, h: 500, name: 'Spacious Suite',
+        sky: '#A0B8C8', floorLight: '#D8B878', floorDark: '#C0A060',
+        wallL: '#E8D8C0', wallR: '#D8C8B0', trim: '#A09070',
+        windows: 2, paintings: 2, hasRug: true, hasCeiling: true,
+        floorType: 'tile',
+    },
+    {   // Level 5: Luxury Loft
+        w: 720, h: 550, name: 'Luxury Loft',
+        sky: '#6888A0', floorLight: '#3D3A4E', floorDark: '#2D2B3A',
+        wallL: '#4A4860', wallR: '#3D3B50', trim: '#2A2838',
+        windows: 3, paintings: 2, hasRug: true, hasCeiling: true,
+        floorType: 'dark',
+    },
+    {   // Level 6: Bean Mansion
+        w: 800, h: 600, name: 'Bean Mansion',
+        sky: '#D4A060', floorLight: '#F0E0C0', floorDark: '#D8C8A8',
+        wallL: '#F5E8D0', wallR: '#E8D8C0', trim: '#C4A878',
+        windows: 3, paintings: 3, hasRug: true, hasCeiling: true,
+        floorType: 'marble',
+    },
 ];
 const ROOM_UPGRADE_COST = 50;
-const ROOM_NAMES = ['Starter Pad', 'Cozy Flat', 'Nice Digs', 'Spacious Suite', 'Luxury Loft', 'Bean Mansion'];
+const ROOM_NAMES = ROOM_LEVELS.map(r => r.name);
+
+function getRoomLevel() {
+    const level = Math.min((state.roomLevel || 1), ROOM_LEVELS.length);
+    return ROOM_LEVELS[level - 1];
+}
 
 function getRoomSize() {
-    const level = Math.min((state.roomLevel || 1), ROOM_SIZES.length);
-    return ROOM_SIZES[level - 1];
+    const r = getRoomLevel();
+    return { w: r.w, h: r.h };
 }
 
 function updateRoomCanvas() {
@@ -301,20 +341,20 @@ function drawRoom() {
     ctx = pixelBegin('room');
     const w = canvas.width;
     const h = canvas.height;
+    const R = getRoomLevel();
 
-    // Background (sage green like reference)
-    ctx.fillStyle = COLORS.sky;
+    // Background
+    ctx.fillStyle = R.sky;
     ctx.fillRect(0, 0, w, h);
 
-    // --- Isometric room ---
-    const cx = w / 2;      // center x
-    const floorY = h * 0.72; // floor level
+    const cx = w / 2;
+    const floorY = h * 0.72;
     const roomW = w * 0.8;
     const wallH = h * 0.5;
     const depth = roomW * 0.35;
 
-    // Floor (diamond shape)
-    ctx.fillStyle = COLORS.floorLight;
+    // ---- FLOOR ----
+    ctx.fillStyle = R.floorLight;
     ctx.beginPath();
     ctx.moveTo(cx, floorY);
     ctx.lineTo(cx + roomW / 2, floorY - depth / 2);
@@ -323,23 +363,86 @@ function drawRoom() {
     ctx.closePath();
     ctx.fill();
 
-    // Floor planks
-    ctx.strokeStyle = COLORS.floorDark;
-    ctx.lineWidth = 1;
-    for (let i = 1; i < 8; i++) {
-        const t = i / 8;
-        const x1 = cx - roomW / 2 + (roomW / 2) * t;
-        const y1 = floorY - depth / 2 - (depth / 2) * t;
-        const x2 = cx + (roomW / 2) * t;
-        const y2 = floorY - (depth / 2) * t;
+    // Floor pattern based on type
+    if (R.floorType === 'wood') {
+        ctx.strokeStyle = R.floorDark;
+        ctx.lineWidth = 1;
+        for (let i = 1; i < 8; i++) {
+            const t = i / 8;
+            ctx.beginPath();
+            ctx.moveTo(cx - roomW / 2 + (roomW / 2) * t, floorY - depth / 2 - (depth / 2) * t);
+            ctx.lineTo(cx + (roomW / 2) * t, floorY - (depth / 2) * t);
+            ctx.stroke();
+        }
+    } else if (R.floorType === 'tile') {
+        ctx.strokeStyle = R.floorDark;
+        ctx.lineWidth = 1;
+        for (let i = 1; i < 10; i++) {
+            const t = i / 10;
+            ctx.beginPath();
+            ctx.moveTo(cx - roomW / 2 + (roomW / 2) * t, floorY - depth / 2 - (depth / 2) * t);
+            ctx.lineTo(cx + (roomW / 2) * t, floorY - (depth / 2) * t);
+            ctx.stroke();
+        }
+        // Cross lines for tile pattern
+        for (let i = 1; i < 10; i++) {
+            const t = i / 10;
+            ctx.beginPath();
+            ctx.moveTo(cx + roomW / 2 - (roomW / 2) * t, floorY - depth / 2 - (depth / 2) * t);
+            ctx.lineTo(cx - (roomW / 2) * t, floorY - (depth / 2) * t);
+            ctx.stroke();
+        }
+    } else if (R.floorType === 'dark') {
+        // Sleek dark floor with subtle sheen
+        ctx.fillStyle = 'rgba(255,255,255,0.03)';
         ctx.beginPath();
-        ctx.moveTo(x1, y1);
-        ctx.lineTo(x2, y2);
+        ctx.moveTo(cx, floorY - depth * 0.3);
+        ctx.lineTo(cx + roomW * 0.2, floorY - depth * 0.45);
+        ctx.lineTo(cx, floorY - depth * 0.6);
+        ctx.lineTo(cx - roomW * 0.2, floorY - depth * 0.45);
+        ctx.closePath();
+        ctx.fill();
+    } else if (R.floorType === 'marble') {
+        // Marble with diagonal veining
+        ctx.strokeStyle = 'rgba(180,160,120,0.3)';
+        ctx.lineWidth = 1;
+        for (let i = 0; i < 6; i++) {
+            const t = i / 6;
+            ctx.beginPath();
+            ctx.moveTo(cx - roomW * 0.3 + roomW * 0.6 * t, floorY - depth * 0.2);
+            ctx.quadraticCurveTo(cx, floorY - depth * 0.5, cx + roomW * 0.1 * t, floorY - depth * 0.8);
+            ctx.stroke();
+        }
+        // Glossy sheen
+        ctx.fillStyle = 'rgba(255,255,255,0.08)';
+        ctx.beginPath();
+        ctx.moveTo(cx, floorY - depth * 0.2);
+        ctx.lineTo(cx + roomW * 0.25, floorY - depth * 0.35);
+        ctx.lineTo(cx, floorY - depth * 0.5);
+        ctx.lineTo(cx - roomW * 0.25, floorY - depth * 0.35);
+        ctx.closePath();
+        ctx.fill();
+    }
+
+    // Floor rug (levels 2+)
+    if (R.hasRug) {
+        ctx.fillStyle = R.floorType === 'dark' ? 'rgba(100,80,140,0.3)' : 'rgba(160,60,60,0.2)';
+        ctx.beginPath();
+        ctx.moveTo(cx, floorY - depth * 0.25);
+        ctx.lineTo(cx + roomW * 0.15, floorY - depth * 0.37);
+        ctx.lineTo(cx, floorY - depth * 0.5);
+        ctx.lineTo(cx - roomW * 0.15, floorY - depth * 0.37);
+        ctx.closePath();
+        ctx.fill();
+        // Rug border
+        ctx.strokeStyle = R.floorType === 'dark' ? 'rgba(140,120,180,0.3)' : 'rgba(180,80,80,0.25)';
+        ctx.lineWidth = 2;
         ctx.stroke();
     }
 
+    // ---- WALLS ----
     // Left wall
-    ctx.fillStyle = COLORS.wallLeft;
+    ctx.fillStyle = R.wallL;
     ctx.beginPath();
     ctx.moveTo(cx - roomW / 2, floorY - depth / 2);
     ctx.lineTo(cx, floorY - depth);
@@ -348,21 +451,19 @@ function drawRoom() {
     ctx.closePath();
     ctx.fill();
 
-    // Left wall planks
-    ctx.strokeStyle = '#A07840';
+    // Left wall panel lines
+    ctx.strokeStyle = 'rgba(0,0,0,0.06)';
     ctx.lineWidth = 1;
     for (let i = 1; i < 6; i++) {
         const t = i / 6;
-        const baseY = floorY - depth / 2 - wallH;
-        const yOff = wallH * t;
         ctx.beginPath();
-        ctx.moveTo(cx - roomW / 2, baseY + yOff);
-        ctx.lineTo(cx, floorY - depth - wallH + yOff);
+        ctx.moveTo(cx - roomW / 2, floorY - depth / 2 - wallH + wallH * t);
+        ctx.lineTo(cx, floorY - depth - wallH + wallH * t);
         ctx.stroke();
     }
 
     // Right wall
-    ctx.fillStyle = COLORS.wallRight;
+    ctx.fillStyle = R.wallR;
     ctx.beginPath();
     ctx.moveTo(cx, floorY - depth);
     ctx.lineTo(cx + roomW / 2, floorY - depth / 2);
@@ -371,64 +472,135 @@ function drawRoom() {
     ctx.closePath();
     ctx.fill();
 
-    // Right wall planks
-    ctx.strokeStyle = '#946E3C';
-    ctx.lineWidth = 1;
+    // Right wall panel lines
     for (let i = 1; i < 6; i++) {
         const t = i / 6;
-        const baseY = floorY - depth - wallH;
-        const yOff = wallH * t;
         ctx.beginPath();
-        ctx.moveTo(cx, baseY + yOff);
-        ctx.lineTo(cx + roomW / 2, floorY - depth / 2 - wallH + yOff);
+        ctx.moveTo(cx, floorY - depth - wallH + wallH * t);
+        ctx.lineTo(cx + roomW / 2, floorY - depth / 2 - wallH + wallH * t);
         ctx.stroke();
     }
 
-    // Wall edges/trim
-    ctx.strokeStyle = COLORS.wallTrim;
+    // ---- CEILING TRIM (level 4+) ----
+    if (R.hasCeiling) {
+        ctx.fillStyle = R.trim;
+        // Left ceiling molding
+        ctx.beginPath();
+        ctx.moveTo(cx - roomW / 2, floorY - depth / 2 - wallH);
+        ctx.lineTo(cx, floorY - depth - wallH);
+        ctx.lineTo(cx, floorY - depth - wallH - 8);
+        ctx.lineTo(cx - roomW / 2, floorY - depth / 2 - wallH - 8);
+        ctx.closePath();
+        ctx.fill();
+        // Right ceiling molding
+        ctx.beginPath();
+        ctx.moveTo(cx, floorY - depth - wallH);
+        ctx.lineTo(cx + roomW / 2, floorY - depth / 2 - wallH);
+        ctx.lineTo(cx + roomW / 2, floorY - depth / 2 - wallH - 8);
+        ctx.lineTo(cx, floorY - depth - wallH - 8);
+        ctx.closePath();
+        ctx.fill();
+    }
+
+    // ---- WALL EDGES ----
+    ctx.strokeStyle = R.trim;
     ctx.lineWidth = 2;
-    // Left wall edge
     ctx.beginPath();
     ctx.moveTo(cx - roomW / 2, floorY - depth / 2);
-    ctx.lineTo(cx - roomW / 2, floorY - depth / 2 - wallH);
+    ctx.lineTo(cx - roomW / 2, floorY - depth / 2 - wallH - (R.hasCeiling ? 8 : 0));
     ctx.stroke();
-    // Right wall edge
     ctx.beginPath();
     ctx.moveTo(cx + roomW / 2, floorY - depth / 2);
-    ctx.lineTo(cx + roomW / 2, floorY - depth / 2 - wallH);
+    ctx.lineTo(cx + roomW / 2, floorY - depth / 2 - wallH - (R.hasCeiling ? 8 : 0));
     ctx.stroke();
-    // Top edges
     ctx.beginPath();
-    ctx.moveTo(cx - roomW / 2, floorY - depth / 2 - wallH);
-    ctx.lineTo(cx, floorY - depth - wallH);
-    ctx.lineTo(cx + roomW / 2, floorY - depth / 2 - wallH);
+    ctx.moveTo(cx - roomW / 2, floorY - depth / 2 - wallH - (R.hasCeiling ? 8 : 0));
+    ctx.lineTo(cx, floorY - depth - wallH - (R.hasCeiling ? 8 : 0));
+    ctx.lineTo(cx + roomW / 2, floorY - depth / 2 - wallH - (R.hasCeiling ? 8 : 0));
     ctx.stroke();
-    // Corner
     ctx.beginPath();
     ctx.moveTo(cx, floorY - depth);
-    ctx.lineTo(cx, floorY - depth - wallH);
+    ctx.lineTo(cx, floorY - depth - wallH - (R.hasCeiling ? 8 : 0));
     ctx.stroke();
 
-    // Window on right wall
-    const winCx = cx + roomW * 0.25;
-    const winCy = floorY - depth * 0.75 - wallH * 0.55;
-    const winW = roomW * 0.15;
-    const winH = wallH * 0.35;
-    // Window frame
-    ctx.fillStyle = COLORS.windowFrame;
-    ctx.fillRect(winCx - winW / 2, winCy - winH / 2, winW, winH);
-    // Window glass
-    ctx.fillStyle = COLORS.windowGlass;
-    ctx.fillRect(winCx - winW / 2 + 3, winCy - winH / 2 + 3, winW - 6, winH - 6);
-    // Window cross
-    ctx.strokeStyle = COLORS.windowFrame;
-    ctx.lineWidth = 2;
-    ctx.beginPath();
-    ctx.moveTo(winCx, winCy - winH / 2 + 3);
-    ctx.lineTo(winCx, winCy + winH / 2 - 3);
-    ctx.moveTo(winCx - winW / 2 + 3, winCy);
-    ctx.lineTo(winCx + winW / 2 - 3, winCy);
-    ctx.stroke();
+    // ---- WINDOWS ----
+    const winPositions = [];
+    if (R.windows >= 1) winPositions.push({ wall: 'R', pos: 0.25 });
+    if (R.windows >= 2) winPositions.push({ wall: 'L', pos: 0.25 });
+    if (R.windows >= 3) winPositions.push({ wall: 'R', pos: 0.6 });
+
+    winPositions.forEach(wp => {
+        let wCx, wCy;
+        const wW = roomW * 0.12;
+        const wH = wallH * 0.3;
+        if (wp.wall === 'R') {
+            wCx = cx + roomW * wp.pos;
+            wCy = floorY - depth * (0.5 + wp.pos) - wallH * 0.45;
+        } else {
+            wCx = cx - roomW * wp.pos;
+            wCy = floorY - depth * (0.5 + wp.pos) - wallH * 0.45;
+        }
+        // Frame
+        ctx.fillStyle = R.floorType === 'dark' ? '#555270' : '#E8D8C0';
+        ctx.fillRect(wCx - wW / 2, wCy - wH / 2, wW, wH);
+        // Glass — different sky based on level
+        const glassColor = R.floorType === 'dark' ? '#2A3050' : '#70A8C8';
+        ctx.fillStyle = glassColor;
+        ctx.fillRect(wCx - wW / 2 + 2, wCy - wH / 2 + 2, wW - 4, wH - 4);
+        // Sun/moon glow
+        ctx.fillStyle = R.floorType === 'dark' ? 'rgba(200,200,255,0.2)' : 'rgba(255,240,200,0.3)';
+        ctx.beginPath();
+        ctx.arc(wCx + wW * 0.15, wCy - wH * 0.15, wW * 0.2, 0, Math.PI * 2);
+        ctx.fill();
+        // Cross
+        ctx.strokeStyle = R.floorType === 'dark' ? '#555270' : '#E8D8C0';
+        ctx.lineWidth = 2;
+        ctx.beginPath();
+        ctx.moveTo(wCx, wCy - wH / 2 + 2);
+        ctx.lineTo(wCx, wCy + wH / 2 - 2);
+        ctx.moveTo(wCx - wW / 2 + 2, wCy);
+        ctx.lineTo(wCx + wW / 2 - 2, wCy);
+        ctx.stroke();
+    });
+
+    // ---- PAINTINGS (wall art) ----
+    const paintingSlots = [];
+    if (R.paintings >= 1) paintingSlots.push({ wall: 'L', pos: 0.5 });
+    if (R.paintings >= 2) paintingSlots.push({ wall: 'R', pos: 0.45 });
+    if (R.paintings >= 3) paintingSlots.push({ wall: 'L', pos: 0.2 });
+
+    const paintingColors = ['#CC6666', '#6688AA', '#88AA66', '#AA8866', '#8866AA'];
+    paintingSlots.forEach((pp, idx) => {
+        let pCx, pCy;
+        const pW = roomW * 0.08;
+        const pH = wallH * 0.18;
+        if (pp.wall === 'L') {
+            pCx = cx - roomW * pp.pos * 0.45;
+            pCy = floorY - depth * (0.5 + pp.pos * 0.4) - wallH * 0.55;
+        } else {
+            pCx = cx + roomW * pp.pos * 0.45;
+            pCy = floorY - depth * (0.5 + pp.pos * 0.4) - wallH * 0.55;
+        }
+        // Frame
+        ctx.fillStyle = '#5C4530';
+        ctx.fillRect(pCx - pW / 2 - 2, pCy - pH / 2 - 2, pW + 4, pH + 4);
+        // Canvas
+        ctx.fillStyle = paintingColors[idx % paintingColors.length];
+        ctx.fillRect(pCx - pW / 2, pCy - pH / 2, pW, pH);
+        // Simple abstract art inside
+        ctx.fillStyle = 'rgba(255,255,255,0.2)';
+        ctx.beginPath();
+        ctx.arc(pCx + pW * 0.2, pCy - pH * 0.1, pW * 0.25, 0, Math.PI * 2);
+        ctx.fill();
+    });
+
+    // ---- ROOM NAME (subtle) ----
+    if ((state.roomLevel || 1) > 1) {
+        ctx.fillStyle = 'rgba(0,0,0,0.08)';
+        ctx.font = '7px "Press Start 2P", monospace';
+        ctx.textAlign = 'center';
+        ctx.fillText(R.name, cx, floorY + 14);
+    }
 
     // Draw furniture
     drawFurniture();
@@ -1043,7 +1215,7 @@ function renderShop() {
 
     // Room upgrade card at top
     const level = state.roomLevel || 1;
-    const maxLevel = ROOM_SIZES.length;
+    const maxLevel = ROOM_LEVELS.length;
     const upgradeDiv = document.createElement('div');
     upgradeDiv.className = 'shop-item';
     upgradeDiv.style.gridColumn = '1 / -1'; // full width
@@ -1116,7 +1288,7 @@ function buyFurniture(item) {
 
 function buyRoomUpgrade() {
     if (state.coins < ROOM_UPGRADE_COST) return;
-    if ((state.roomLevel || 1) >= ROOM_SIZES.length) return;
+    if ((state.roomLevel || 1) >= ROOM_LEVELS.length) return;
     state.coins -= ROOM_UPGRADE_COST;
     state.roomLevel = (state.roomLevel || 1) + 1;
     const name = ROOM_NAMES[state.roomLevel - 1];
