@@ -20,6 +20,16 @@ const FURNITURE = [
     { id: 'desk',      name: 'Desk',           icon: '🖥️', price: 0,   desc: 'A trusty workspace', starter: true },
     { id: 'rug',       name: 'Cozy Rug',      icon: '🟫', price: 5,   desc: 'A warm woven rug' },
     { id: 'plant',     name: 'Potted Plant',   icon: '🪴', price: 3,   desc: 'A little green friend' },
+    { id: 'cactus',    name: 'Cactus',         icon: '🌵', price: 4,   desc: 'Prickly but cute' },
+    { id: 'sunflower', name: 'Sunflower',      icon: '🌻', price: 5,   desc: 'Always looks on the bright side' },
+    { id: 'tulip',     name: 'Tulip Pot',      icon: '🌷', price: 4,   desc: 'Spring vibes' },
+    { id: 'bonsai',    name: 'Bonsai Tree',    icon: '🌳', price: 12,  desc: 'Tiny tree, big energy' },
+    { id: 'bamboo',    name: 'Lucky Bamboo',   icon: '🎋', price: 6,   desc: 'Good fortune for your bean' },
+    { id: 'fern',      name: 'Hanging Fern',   icon: '🌿', price: 7,   desc: 'Drapes elegantly' },
+    { id: 'mushroom',  name: 'Mushroom Log',   icon: '🍄', price: 8,   desc: 'Funky fungi' },
+    { id: 'cherry',    name: 'Cherry Blossom', icon: '🌸', price: 15,  desc: 'Peaceful and pretty' },
+    { id: 'palm',      name: 'Mini Palm',      icon: '🌴', price: 10,  desc: 'Tropical getaway' },
+    { id: 'herb',      name: 'Herb Garden',    icon: '🌱', price: 6,   desc: 'Fresh basil and thyme' },
     { id: 'poster',    name: 'Disc Golf Poster', icon: '🖼️', price: 4, desc: 'Send it!' },
     { id: 'lamp',      name: 'Lava Lamp',      icon: '🪔', price: 8,   desc: 'Groovy vibes' },
     { id: 'shelf',     name: 'Trophy Shelf',   icon: '🏆', price: 10,  desc: 'Show off your aces' },
@@ -83,8 +93,8 @@ let state = {
     hungoverUntil: 0,
     beerTimestamps: [],
     furniture: [...STARTER_FURNITURE],
-    // placement data: { itemId: { x, y, scale, rotation } }
     furniturePlacement: { ...DEFAULT_PLACEMENTS },
+    roomLevel: 1, // 1 = starter, each upgrade adds more space
     totalAliveTime: 0,
     lastUpdate: Date.now(),
     created: Date.now(),
@@ -139,6 +149,8 @@ function loadGame() {
     if (saved) {
         const parsed = JSON.parse(saved);
         state = { ...state, ...parsed };
+        // Ensure room level exists
+        if (!state.roomLevel) state.roomLevel = 1;
         // Ensure starter furniture is always present
         STARTER_FURNITURE.forEach(id => {
             if (!state.furniture.includes(id)) state.furniture.push(id);
@@ -254,7 +266,34 @@ const COLORS = {
     sky: '#88A898',
 };
 
+const ROOM_SIZES = [
+    // level: { canvasW, canvasH }
+    { w: 400, h: 350 },  // level 1 (starter)
+    { w: 480, h: 400 },  // level 2
+    { w: 560, h: 450 },  // level 3
+    { w: 640, h: 500 },  // level 4
+    { w: 720, h: 550 },  // level 5
+    { w: 800, h: 600 },  // level 6 (mansion)
+];
+const ROOM_UPGRADE_COST = 50;
+const ROOM_NAMES = ['Starter Pad', 'Cozy Flat', 'Nice Digs', 'Spacious Suite', 'Luxury Loft', 'Bean Mansion'];
+
+function getRoomSize() {
+    const level = Math.min((state.roomLevel || 1), ROOM_SIZES.length);
+    return ROOM_SIZES[level - 1];
+}
+
+function updateRoomCanvas() {
+    const size = getRoomSize();
+    if (canvas.width !== size.w || canvas.height !== size.h) {
+        canvas.width = size.w;
+        canvas.height = size.h;
+        initPixelBuffer('room', canvas);
+    }
+}
+
 function drawRoom() {
+    updateRoomCanvas();
     ctx = pixelBegin('room');
     const w = canvas.width;
     const h = canvas.height;
@@ -998,6 +1037,33 @@ function renderShop() {
     const container = $('shop-items');
     container.innerHTML = '';
 
+    // Room upgrade card at top
+    const level = state.roomLevel || 1;
+    const maxLevel = ROOM_SIZES.length;
+    const upgradeDiv = document.createElement('div');
+    upgradeDiv.className = 'shop-item';
+    upgradeDiv.style.gridColumn = '1 / -1'; // full width
+    if (level >= maxLevel) {
+        upgradeDiv.classList.add('owned');
+        upgradeDiv.innerHTML = `
+            <div class="shop-item-icon">🏠</div>
+            <div class="shop-item-name">${ROOM_NAMES[level - 1]}</div>
+            <div class="shop-item-price" style="color:#6FCF97;">MAX LEVEL</div>
+        `;
+    } else {
+        const canAffordRoom = state.coins >= ROOM_UPGRADE_COST;
+        upgradeDiv.innerHTML = `
+            <div class="shop-item-icon">🏠</div>
+            <div class="shop-item-name">Upgrade Room</div>
+            <div style="font-size:6px;color:#B8B0CC;margin-bottom:4px;">${ROOM_NAMES[level - 1]} → ${ROOM_NAMES[level]}</div>
+            <div class="shop-item-price">⭐ ${ROOM_UPGRADE_COST}</div>
+        `;
+        if (canAffordRoom) {
+            upgradeDiv.addEventListener('click', buyRoomUpgrade);
+        }
+    }
+    container.appendChild(upgradeDiv);
+
     FURNITURE.filter(item => !item.starter).forEach(item => {
         const owned = state.furniture.includes(item.id);
         const canAfford = state.coins >= item.price;
@@ -1039,6 +1105,18 @@ function buyFurniture(item) {
     // Give it a default placement in the center of the room
     state.furniturePlacement[item.id] = { x: 200, y: 180, scale: 1, rotation: 0, flip: false };
     showNotification(`You bought a ${item.name}! Go to Decorate to place it! 🎉`);
+    renderShop();
+    updateCoinDisplay();
+    saveGame();
+}
+
+function buyRoomUpgrade() {
+    if (state.coins < ROOM_UPGRADE_COST) return;
+    if ((state.roomLevel || 1) >= ROOM_SIZES.length) return;
+    state.coins -= ROOM_UPGRADE_COST;
+    state.roomLevel = (state.roomLevel || 1) + 1;
+    const name = ROOM_NAMES[state.roomLevel - 1];
+    showNotification(`Room upgraded to ${name}! 🏠 More space for your stuff!`);
     renderShop();
     updateCoinDisplay();
     saveGame();
@@ -1674,6 +1752,449 @@ function drawDiscFlying() {
     discCtx.ellipse(discState.discX, discState.discY, 8, 4, 0.3, 0, Math.PI * 2);
     discCtx.fill();
     discCtx.stroke();
+}
+
+// ---- SNAKE GAME ----
+const snakeCanvas = $('snake-canvas');
+let snakeCtx = snakeCanvas.getContext('2d');
+let SW = snakeCanvas.width;
+let SH = snakeCanvas.height;
+
+const SNAKE_TILE = 20;
+let snakeRAF = null;
+
+let snake = {
+    phase: 'idle', // idle, playing, dead
+    body: [],      // [{x,y}, ...] head is [0]
+    dir: { x: 1, y: 0 },
+    nextDir: { x: 1, y: 0 },
+    coin: null,    // {x, y}
+    score: 0,
+    bestScore: 0,
+    speed: 8,      // moves per second
+    lastMove: 0,
+    gridW: 0,
+    gridH: 0,
+};
+
+function resizeSnakeCanvas() {
+    const screen = $('snake-screen');
+    const navH = $('nav-bar').offsetHeight || 40;
+    const titleH = $('title-bar').offsetHeight || 40;
+    const availH = window.innerHeight - navH - titleH;
+    const availW = Math.min(400, screen.offsetWidth || 400);
+    // Make it square-ish, fit in available space
+    const size = Math.min(availW, availH);
+    snakeCanvas.width = size;
+    snakeCanvas.height = size;
+    SW = size;
+    SH = size;
+    snake.gridW = Math.floor(SW / SNAKE_TILE);
+    snake.gridH = Math.floor(SH / SNAKE_TILE);
+    initPixelBuffer('snake', snakeCanvas);
+}
+
+function startSnake() {
+    stopSnake();
+    resizeSnakeCanvas();
+    const saved = localStorage.getItem('snakeBest');
+    if (saved) snake.bestScore = parseInt(saved) || 0;
+    resetSnake();
+    snakeLoop();
+}
+
+function stopSnake() {
+    if (snakeRAF) {
+        cancelAnimationFrame(snakeRAF);
+        snakeRAF = null;
+    }
+}
+
+function resetSnake() {
+    snake.phase = 'idle';
+    snake.score = 0;
+    snake.speed = 8;
+    snake.lastMove = 0;
+    snake.dir = { x: 1, y: 0 };
+    snake.nextDir = { x: 1, y: 0 };
+    const cx = Math.floor(snake.gridW / 2);
+    const cy = Math.floor(snake.gridH / 2);
+    snake.body = [
+        { x: cx, y: cy },
+        { x: cx - 1, y: cy },
+        { x: cx - 2, y: cy },
+    ];
+    spawnSnakeCoin();
+}
+
+function spawnSnakeCoin() {
+    let x, y;
+    do {
+        x = Math.floor(Math.random() * snake.gridW);
+        y = Math.floor(Math.random() * snake.gridH);
+    } while (snake.body.some(s => s.x === x && s.y === y));
+    snake.coin = { x, y };
+}
+
+function snakeLoop() {
+    try {
+        const now = performance.now();
+        if (snake.phase === 'playing') {
+            const interval = 1000 / snake.speed;
+            if (now - snake.lastMove >= interval) {
+                snake.lastMove = now;
+                snakeStep();
+            }
+        }
+        snakeDraw();
+    } catch (e) {
+        console.error('Snake error:', e);
+    }
+    snakeRAF = requestAnimationFrame(snakeLoop);
+}
+
+function snakeStep() {
+    snake.dir = { ...snake.nextDir };
+    const head = snake.body[0];
+    const newHead = { x: head.x + snake.dir.x, y: head.y + snake.dir.y };
+
+    // Wall collision (wrap around)
+    if (newHead.x < 0) newHead.x = snake.gridW - 1;
+    if (newHead.x >= snake.gridW) newHead.x = 0;
+    if (newHead.y < 0) newHead.y = snake.gridH - 1;
+    if (newHead.y >= snake.gridH) newHead.y = 0;
+
+    // Self collision
+    if (snake.body.some(s => s.x === newHead.x && s.y === newHead.y)) {
+        snakeDie();
+        return;
+    }
+
+    snake.body.unshift(newHead);
+
+    // Coin collision
+    if (snake.coin && newHead.x === snake.coin.x && newHead.y === snake.coin.y) {
+        snake.score++;
+        // Speed up slightly every 5 coins
+        if (snake.score % 5 === 0) snake.speed = Math.min(20, snake.speed + 1);
+        spawnSnakeCoin();
+        // Don't remove tail — snake grows
+    } else {
+        snake.body.pop();
+    }
+}
+
+function snakeDie() {
+    snake.phase = 'dead';
+    if (snake.score > snake.bestScore) {
+        snake.bestScore = snake.score;
+        localStorage.setItem('snakeBest', snake.bestScore);
+    }
+    // Award coins to main game
+    state.coins += snake.score;
+    const funBoost = Math.min(25, snake.score * 2);
+    state.fun = Math.min(100, state.fun + funBoost);
+    if (snake.score > 0) saveGame();
+}
+
+function snakeDraw() {
+    snakeCtx = pixelBegin('snake');
+    const T = SNAKE_TILE;
+
+    // Grassy background
+    snakeCtx.fillStyle = '#4A8F4A';
+    snakeCtx.fillRect(0, 0, SW, SH);
+
+    // Grass texture (subtle darker patches)
+    snakeCtx.fillStyle = '#3D7D3D';
+    for (let x = 0; x < snake.gridW; x++) {
+        for (let y = 0; y < snake.gridH; y++) {
+            if ((x + y * 3) % 7 === 0) {
+                snakeCtx.fillRect(x * T + 2, y * T + 2, T - 4, T - 4);
+            }
+        }
+    }
+
+    // A few random flowers/details on the grass
+    snakeCtx.fillStyle = '#5CAF5C';
+    for (let i = 0; i < 12; i++) {
+        const fx = ((i * 37 + 13) % snake.gridW) * T + T / 2;
+        const fy = ((i * 23 + 7) % snake.gridH) * T + T / 2;
+        snakeCtx.beginPath();
+        snakeCtx.arc(fx, fy, 2, 0, Math.PI * 2);
+        snakeCtx.fill();
+    }
+
+    // Subtle grid lines
+    snakeCtx.strokeStyle = 'rgba(0,0,0,0.06)';
+    snakeCtx.lineWidth = 0.5;
+    for (let x = 0; x <= snake.gridW; x++) {
+        snakeCtx.beginPath();
+        snakeCtx.moveTo(x * T, 0);
+        snakeCtx.lineTo(x * T, snake.gridH * T);
+        snakeCtx.stroke();
+    }
+    for (let y = 0; y <= snake.gridH; y++) {
+        snakeCtx.beginPath();
+        snakeCtx.moveTo(0, y * T);
+        snakeCtx.lineTo(snake.gridW * T, y * T);
+        snakeCtx.stroke();
+    }
+
+    // Bean body segments (trail of little beans)
+    snake.body.forEach((seg, i) => {
+        const isHead = i === 0;
+        const cx = seg.x * T + T / 2;
+        const cy = seg.y * T + T / 2;
+
+        if (isHead) {
+            // Bean head — bigger, with face
+            // Shadow
+            snakeCtx.fillStyle = 'rgba(0,0,0,0.15)';
+            snakeCtx.beginPath();
+            snakeCtx.ellipse(cx + 1, cy + 2, T * 0.42, T * 0.32, 0, 0, Math.PI * 2);
+            snakeCtx.fill();
+            // Body
+            snakeCtx.fillStyle = '#8B6B4A';
+            snakeCtx.beginPath();
+            snakeCtx.ellipse(cx, cy, T * 0.42, T * 0.38, 0, 0, Math.PI * 2);
+            snakeCtx.fill();
+            // Highlight
+            snakeCtx.fillStyle = 'rgba(255,255,255,0.15)';
+            snakeCtx.beginPath();
+            snakeCtx.ellipse(cx - 2, cy - 2, T * 0.18, T * 0.22, -0.3, 0, Math.PI * 2);
+            snakeCtx.fill();
+            // Outline
+            snakeCtx.strokeStyle = '#5C4530';
+            snakeCtx.lineWidth = 1.5;
+            snakeCtx.beginPath();
+            snakeCtx.ellipse(cx, cy, T * 0.42, T * 0.38, 0, 0, Math.PI * 2);
+            snakeCtx.stroke();
+            // Eyes (direction-aware)
+            snakeCtx.fillStyle = '#3D2B1A';
+            const eyeOff = 3;
+            let e1x = cx - 3, e1y = cy - 2, e2x = cx + 3, e2y = cy - 2;
+            if (snake.dir.x === 1) { e1x = cx + 1; e1y = cy - 3; e2x = cx + 1; e2y = cy + 2; }
+            else if (snake.dir.x === -1) { e1x = cx - 2; e1y = cy - 3; e2x = cx - 2; e2y = cy + 2; }
+            else if (snake.dir.y === -1) { e1x = cx - 3; e1y = cy - 2; e2x = cx + 3; e2y = cy - 2; }
+            else { e1x = cx - 3; e1y = cy + 2; e2x = cx + 3; e2y = cy + 2; }
+            snakeCtx.beginPath();
+            snakeCtx.arc(e1x, e1y, 2, 0, Math.PI * 2);
+            snakeCtx.arc(e2x, e2y, 2, 0, Math.PI * 2);
+            snakeCtx.fill();
+            // Eye shine
+            snakeCtx.fillStyle = 'white';
+            snakeCtx.beginPath();
+            snakeCtx.arc(e1x + 0.5, e1y - 0.5, 0.8, 0, Math.PI * 2);
+            snakeCtx.arc(e2x + 0.5, e2y - 0.5, 0.8, 0, Math.PI * 2);
+            snakeCtx.fill();
+        } else {
+            // Trail beans — smaller, alternating shades
+            const shade = i % 2 === 0 ? '#A0825E' : '#8B6B4A';
+            const size = T * 0.3;
+            snakeCtx.fillStyle = shade;
+            snakeCtx.beginPath();
+            snakeCtx.ellipse(cx, cy, size, size * 0.85, 0, 0, Math.PI * 2);
+            snakeCtx.fill();
+            snakeCtx.strokeStyle = '#5C4530';
+            snakeCtx.lineWidth = 1;
+            snakeCtx.beginPath();
+            snakeCtx.ellipse(cx, cy, size, size * 0.85, 0, 0, Math.PI * 2);
+            snakeCtx.stroke();
+        }
+    });
+
+    // Coin (beer mug!)
+    if (snake.coin) {
+        const cx = snake.coin.x * T + T / 2;
+        const cy = snake.coin.y * T + T / 2;
+        // Glow
+        snakeCtx.fillStyle = 'rgba(240, 198, 116, 0.2)';
+        snakeCtx.beginPath();
+        snakeCtx.arc(cx, cy, T * 0.55, 0, Math.PI * 2);
+        snakeCtx.fill();
+        // Coin
+        snakeCtx.fillStyle = '#F0C674';
+        snakeCtx.beginPath();
+        snakeCtx.arc(cx, cy, T * 0.35, 0, Math.PI * 2);
+        snakeCtx.fill();
+        snakeCtx.strokeStyle = '#C4A043';
+        snakeCtx.lineWidth = 1.5;
+        snakeCtx.stroke();
+        // Star
+        snakeCtx.fillStyle = '#C4A043';
+        snakeCtx.font = '8px sans-serif';
+        snakeCtx.textAlign = 'center';
+        snakeCtx.textBaseline = 'middle';
+        snakeCtx.fillText('★', cx, cy + 1);
+    }
+
+    // Score HUD
+    snakeCtx.fillStyle = 'rgba(0,0,0,0.3)';
+    snakeCtx.fillRect(0, 0, SW, 24);
+    snakeCtx.fillStyle = '#F0C674';
+    snakeCtx.font = '11px "Press Start 2P", monospace';
+    snakeCtx.textAlign = 'left';
+    snakeCtx.textBaseline = 'top';
+    snakeCtx.fillText('★ ' + snake.score, 8, 6);
+    // Bean name
+    if (state.beanName) {
+        snakeCtx.fillStyle = '#F5E6D0';
+        snakeCtx.textAlign = 'right';
+        snakeCtx.font = '7px "Press Start 2P", monospace';
+        snakeCtx.fillText(state.beanName, SW - 8, 8);
+    }
+
+    // Idle screen
+    if (snake.phase === 'idle') {
+        snakeCtx.fillStyle = 'rgba(0,0,0,0.55)';
+        snakeCtx.fillRect(0, 0, SW, SH);
+
+        snakeCtx.fillStyle = '#8B6B4A';
+        snakeCtx.font = '16px "Press Start 2P", monospace';
+        snakeCtx.textAlign = 'center';
+        snakeCtx.textBaseline = 'middle';
+        snakeCtx.fillText('BEAN SNAKE', SW / 2, SH * 0.32);
+
+        snakeCtx.fillStyle = '#F0C674';
+        snakeCtx.font = '7px "Press Start 2P", monospace';
+        snakeCtx.fillText('Collect coins on the course!', SW / 2, SH * 0.43);
+
+        const blink = Math.sin(performance.now() * 0.004) > 0;
+        if (blink) {
+            snakeCtx.fillStyle = '#F5E6D0';
+            snakeCtx.font = '9px "Press Start 2P", monospace';
+            snakeCtx.fillText('TAP TO START', SW / 2, SH * 0.56);
+        }
+
+        snakeCtx.fillStyle = 'rgba(255,255,255,0.3)';
+        snakeCtx.font = '6px "Press Start 2P", monospace';
+        snakeCtx.fillText('Swipe or arrow keys to move', SW / 2, SH * 0.64);
+
+        if (snake.bestScore > 0) {
+            snakeCtx.fillStyle = 'rgba(255,255,255,0.4)';
+            snakeCtx.font = '8px "Press Start 2P", monospace';
+            snakeCtx.fillText('Best: ' + snake.bestScore, SW / 2, SH * 0.72);
+        }
+    }
+
+    // Dead screen
+    if (snake.phase === 'dead') {
+        snakeCtx.fillStyle = 'rgba(0,0,0,0.6)';
+        snakeCtx.fillRect(0, 0, SW, SH);
+
+        snakeCtx.fillStyle = '#E87D5F';
+        snakeCtx.font = '14px "Press Start 2P", monospace';
+        snakeCtx.textAlign = 'center';
+        snakeCtx.textBaseline = 'middle';
+        snakeCtx.fillText(state.beanName ? state.beanName + ' tripped!' : 'BEAN DOWN!', SW / 2, SH * 0.28);
+
+        snakeCtx.fillStyle = '#F5E6D0';
+        snakeCtx.font = '10px "Press Start 2P", monospace';
+        snakeCtx.fillText('Score: ' + snake.score, SW / 2, SH * 0.4);
+        snakeCtx.fillStyle = 'rgba(255,255,255,0.4)';
+        snakeCtx.fillText('Best: ' + snake.bestScore, SW / 2, SH * 0.48);
+
+        snakeCtx.fillStyle = '#F0C674';
+        snakeCtx.font = '9px "Press Start 2P", monospace';
+        snakeCtx.fillText('+' + snake.score + ' coins earned!', SW / 2, SH * 0.59);
+
+        const blink = Math.sin(performance.now() * 0.005) > 0;
+        if (blink) {
+            snakeCtx.fillStyle = '#F5E6D0';
+            snakeCtx.font = '8px "Press Start 2P", monospace';
+            snakeCtx.fillText('TAP TO RETRY', SW / 2, SH * 0.72);
+        }
+    }
+
+    pixelEnd('snake');
+}
+
+// Snake input — swipe on mobile, arrow keys on desktop
+let snakeTouchStart = null;
+
+function onSnakeInput(e) {
+    if (currentScreen !== 'snake') return;
+    e.preventDefault();
+
+    if (snake.phase === 'idle') {
+        snake.phase = 'playing';
+        snake.lastMove = performance.now();
+        return;
+    }
+    if (snake.phase === 'dead') {
+        resetSnake();
+        snake.phase = 'playing';
+        snake.lastMove = performance.now();
+        return;
+    }
+}
+
+function onSnakeTouchStart(e) {
+    if (currentScreen !== 'snake') return;
+    if (snake.phase !== 'playing') {
+        onSnakeInput(e);
+        return;
+    }
+    e.preventDefault();
+    const t = e.touches[0];
+    snakeTouchStart = { x: t.clientX, y: t.clientY };
+}
+
+function onSnakeTouchEnd(e) {
+    if (currentScreen !== 'snake' || snake.phase !== 'playing' || !snakeTouchStart) return;
+    e.preventDefault();
+    const t = e.changedTouches[0];
+    const dx = t.clientX - snakeTouchStart.x;
+    const dy = t.clientY - snakeTouchStart.y;
+    snakeTouchStart = null;
+
+    // Need a minimum swipe distance
+    if (Math.abs(dx) < 15 && Math.abs(dy) < 15) return;
+
+    if (Math.abs(dx) > Math.abs(dy)) {
+        // Horizontal swipe
+        if (dx > 0 && snake.dir.x !== -1) snake.nextDir = { x: 1, y: 0 };
+        else if (dx < 0 && snake.dir.x !== 1) snake.nextDir = { x: -1, y: 0 };
+    } else {
+        // Vertical swipe
+        if (dy > 0 && snake.dir.y !== -1) snake.nextDir = { x: 0, y: 1 };
+        else if (dy < 0 && snake.dir.y !== 1) snake.nextDir = { x: 0, y: -1 };
+    }
+}
+
+function onSnakeKeyDown(e) {
+    if (currentScreen !== 'snake') return;
+    if (snake.phase !== 'playing') {
+        if (e.code === 'Space' || e.code.startsWith('Arrow')) {
+            e.preventDefault();
+            snake.phase = 'playing';
+            snake.lastMove = performance.now();
+        }
+        return;
+    }
+    switch (e.code) {
+        case 'ArrowUp':
+        case 'KeyW':
+            if (snake.dir.y !== 1) snake.nextDir = { x: 0, y: -1 };
+            e.preventDefault();
+            break;
+        case 'ArrowDown':
+        case 'KeyS':
+            if (snake.dir.y !== -1) snake.nextDir = { x: 0, y: 1 };
+            e.preventDefault();
+            break;
+        case 'ArrowLeft':
+        case 'KeyA':
+            if (snake.dir.x !== 1) snake.nextDir = { x: -1, y: 0 };
+            e.preventDefault();
+            break;
+        case 'ArrowRight':
+        case 'KeyD':
+            if (snake.dir.x !== -1) snake.nextDir = { x: 1, y: 0 };
+            e.preventDefault();
+            break;
+    }
 }
 
 // ---- FLAPPY BEAN ----
@@ -3558,6 +4079,7 @@ function switchScreen(screen) {
         $('bar-screen').classList.toggle('hidden', screen !== 'bar');
         $('discgolf-screen').classList.toggle('hidden', screen !== 'discgolf');
         $('flappy-screen').classList.toggle('hidden', screen !== 'flappy');
+        $('snake-screen').classList.toggle('hidden', screen !== 'snake');
         $('beats-screen').classList.toggle('hidden', screen !== 'beats');
         $('decorate-bar').classList.add('hidden');
     }
@@ -3571,6 +4093,8 @@ function switchScreen(screen) {
     if (screen === 'discgolf') startDiscGolf();
     if (screen === 'flappy') startFlappy();
     if (screen !== 'flappy') stopFlappy();
+    if (screen === 'snake') startSnake();
+    if (screen !== 'snake') stopSnake();
     if (screen === 'beats') startBeats();
     if (screen !== 'beats') stopBeats();
 }
@@ -3601,6 +4125,7 @@ function init() {
     initPixelBuffer('flappy', flapCanvas);
     initPixelBuffer('bar', barCanvas);
     initPixelBuffer('beats', beatsCanvas);
+    initPixelBuffer('snake', snakeCanvas);
 
     // Action buttons
     document.querySelectorAll('.action-btn').forEach(btn => {
@@ -3638,6 +4163,12 @@ function init() {
             flapJump();
         }
     });
+
+    // Snake input
+    snakeCanvas.addEventListener('click', onSnakeInput);
+    snakeCanvas.addEventListener('touchstart', onSnakeTouchStart, { passive: false });
+    snakeCanvas.addEventListener('touchend', onSnakeTouchEnd, { passive: false });
+    document.addEventListener('keydown', onSnakeKeyDown);
 
     // Bean Beats input
     beatsCanvas.addEventListener('click', onBeatsCanvasInput);

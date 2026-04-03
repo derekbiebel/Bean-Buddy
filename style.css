@@ -902,6 +902,32 @@ body {
     border-bottom-width: 1px;
 }
 
+/* ===== SNAKE ===== */
+#snake-screen {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    background: #1A1825;
+    padding: 0;
+    overflow: hidden;
+}
+
+#snake-screen.hidden {
+    display: none !important;
+}
+
+#snake-canvas {
+    width: 100%;
+    max-width: 400px;
+    flex: 1;
+    min-height: 0;
+    image-rendering: -webkit-optimize-contrast;
+    image-rendering: pixelated;
+    image-rendering: crisp-edges;
+    touch-action: none;
+    -webkit-touch-callout: none;
+}
+
 /* ===== PASSED OUT OVERLAY ===== */
 #passed-out-overlay {
     position: fixed;
