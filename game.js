@@ -72,6 +72,7 @@ const DEFAULT_PLACEMENTS = {
 
 // ---- GAME STATE ----
 let state = {
+    beanName: '',
     hunger: 100,
     thirst: 100,
     social: 100,
@@ -871,23 +872,32 @@ function updateCoinDisplay() {
     $('coin-count').textContent = Math.floor(state.coins);
 }
 
+function updateBeanName() {
+    const name = state.beanName || 'Your bean';
+    $('title-text').textContent = state.beanName || 'Bean Buddy';
+}
+
+function bn() {
+    return state.beanName || 'Your bean';
+}
+
 function updateStatusText() {
     const avg = (state.hunger + state.thirst + state.social + state.fun) / 4;
     let text;
     if (!state.alive) {
-        text = 'Your bean has passed out... 💀';
+        text = bn() + ' has passed out... 💀';
     } else if (state.hungover) {
-        text = 'Your bean is hungover... 🤢';
+        text = bn() + ' is hungover... 🤢';
     } else if (avg > 80) {
-        text = 'Your bean is vibing! 😎';
+        text = bn() + ' is vibing! 😎';
     } else if (avg > 60) {
-        text = 'Your bean is chillin\' 😊';
+        text = bn() + ' is chillin\' 😊';
     } else if (avg > 40) {
-        text = 'Your bean could use some attention 😐';
+        text = bn() + ' could use some attention 😐';
     } else if (avg > 20) {
-        text = 'Your bean is not doing great... 😟';
+        text = bn() + ' is not doing great... 😟';
     } else {
-        text = 'Your bean is in trouble! Help it! 😰';
+        text = bn() + ' is in trouble! Help it! 😰';
     }
     $('status-text').textContent = text;
 }
@@ -2940,6 +2950,7 @@ const CONVERSATIONS = {
             philo:  ['"Ah, another soul seeking connection in this vast universe."', '"Hello, friend. Tell me — are we beans having a human experience?"', '"Welcome. I was just pondering the meaning of fermentation."'],
             sporty: ['"Hey! Did you see that ace on hole 7 today??"', '"What\'s up! You play disc golf? You LOOK like you play."', '"Yo! My drive has been so clean lately."'],
             funny:  ['"Oh good, I need a new audience — everyone else already heard my jokes."', '"Hey! Quick — what do you call a bean that tells lies? A fib-er bean!"', '"Welcome to my TED talk. Today\'s topic: why bar nuts are hilarious."'],
+            pam:    ['"Well well well, look who finally showed up! I was JUST talking about you."', '"Hey sugar! Pam\'s been holding down this stool since Tuesday. Pull up a chair!"', '"Oh honey, you look like you need a drink and a story. I got both."'],
         },
         social: 8, fun: 3,
     },
@@ -2952,6 +2963,7 @@ const CONVERSATIONS = {
             philo:  ['"Interesting. Humor as a defense mechanism against the absurd."', '"Hmm. That joke reveals a deeper truth about bean society."', '"I laughed, but also, have you considered WHY it\'s funny?"'],
             sporty: ['"Ha! Good one. Okay but have you heard the one about the shanked drive?"', '"Lol nice. Not as good as my disc golf jokes though."', '"Haha! Reminds me of this one time on hole 3—"'],
             funny:  ['"Okay that was a 7/10. Let me hit you with a 10/10..."', '"HA! A fellow comedian! We should start a duo."', '"Not bad, not bad. But check THIS one out—"'],
+            pam:    ['"HAAAA! Oh that\'s good. I\'m stealing that. It\'s mine now."', '"Okay okay, not bad! But have you heard the one about the bean who walked into a bar? ...it\'s this bar. I\'m the bean. I never left."', '"HA! You\'re funny. Not as funny as me, but who is?"'],
         },
         social: 12, fun: 8,
     },
@@ -2964,6 +2976,7 @@ const CONVERSATIONS = {
             philo:  ['"YES. Now we\'re talking. The existential weight of being a bean..."', '"I\'ve been waiting all night for this conversation."', '"This is why I come to bars. Not the drinks. The TRUTH."'],
             sporty: ['"Huh. I usually don\'t go there but... you make a good point."', '"That\'s actually deep. Like a really deep rough on hole 12."', '"Wow... I need to think about that during my next round."'],
             funny:  ['"Oh we\'re doing feelings now? ...okay fine, that was beautiful."', '"Dang. I came here to laugh, not to FEEL."', '"...alright that got me. Cheers to that."'],
+            pam:    ['"Oh honey... *puts down drink* ...you know, I\'ve been coming to this bar for years. You\'re the first bean who actually asked how I\'m doing."', '"Listen. Pam\'s been through a LOT. Three marriages, two business failures, and one really bad haircut. But you know what? I wouldn\'t change a thing."', '"...you\'re a real one, you know that? Most beans just want jokes. You actually listen."'],
         },
         social: 18, fun: 2,
     },
@@ -2977,6 +2990,7 @@ const CONVERSATIONS = {
             philo:  ['"Generosity — the purest expression of the bean condition."', '"In buying this round, you buy a moment of connection. Beautiful."', '"The glass fills, as does my appreciation for your kindness."'],
             sporty: ['"Drinks on you?? That\'s a birdie move right there!"', '"Now THAT\'S a power play! Cheers, champ!"', '"Ace move! Next round of disc golf is on me."'],
             funny:  ['"Free drinks AND good company? Did I win the lottery?"', '"To the bean with the deepest pockets and biggest heart!"', '"Finally my looks are paying off! ...wait, you\'re buying for everyone?"'],
+            pam:    ['"NOW we\'re talking!! BARTENDER! This one\'s buying! *announces it to the entire bar*"', '"Oh you sweet angel bean. Pam will remember this FOREVER. And I mean it — I have a spreadsheet."', '"This is why you\'re my favorite. Don\'t tell the others. Actually, tell them. I don\'t care."'],
         },
         social: 22, fun: 10, thirst: 15,
     },
@@ -2989,6 +3003,7 @@ const CONVERSATIONS = {
             philo:  ['"The flight of a disc — chaos and order in perfect balance."', '"Each throw is a metaphor. The wind, the trees, the choices..."', '"In disc golf, as in life, we throw and hope for the best."'],
             sporty: ['"Oh you wanna go? My forehand is NASTY right now."', '"I just parked a 300-footer yesterday. No big deal."', '"What\'s your go-to driver? I\'m a Destroyer bean myself."'],
             funny:  ['"I played yesterday! Shot a 12 on one hole. New record!"', '"I\'m great at disc golf. The disc just goes... not where I want."', '"Trees are 90% of the course and 100% of my problems."'],
+            pam:    ['"Oh I LOVE disc golf. I mean, I\'ve never played. But I love the outfits."', '"My ex-husband was really into disc golf. That\'s actually why he\'s my ex. He chose the course over me. TWICE."', '"I threw a disc once. It went backwards. The group behind us applauded. I took a bow."'],
         },
         social: 10, fun: 12,
     },
@@ -3003,12 +3018,21 @@ let barState = {
     phase: 'pick', // pick, dialogue, result
 };
 
+// Pinto Bean Pam - always at the bar
+const PAM = {
+    name: 'Pinto Bean Pam',
+    vibe: { id: 'funny', label: 'holding court at the bar', emoji: '👑' },
+    color: '#C4885A',
+    talked: false,
+    isPam: true,
+};
+
 function enterBar() {
-    // Generate 3 random NPC beans
+    // Pam is always there + 2 random NPCs
     const shuffledNames = [...BEAN_NAMES].sort(() => Math.random() - 0.5);
     const shuffledVibes = [...BEAN_VIBES].sort(() => Math.random() - 0.5);
-    barState.npcs = [];
-    for (let i = 0; i < 3; i++) {
+    barState.npcs = [{ ...PAM, talked: false }];
+    for (let i = 0; i < 2; i++) {
         barState.npcs.push({
             name: shuffledNames[i],
             vibe: shuffledVibes[i],
@@ -3299,7 +3323,8 @@ function startConversation(npc) {
     barState.phase = 'dialogue';
 
     // Get greeting
-    const greetings = CONVERSATIONS.greet.responses[npc.vibe.id];
+    const vibeKey = npc.isPam ? 'pam' : npc.vibe.id;
+    const greetings = CONVERSATIONS.greet.responses[vibeKey];
     barState.greeting = greetings[Math.floor(Math.random() * greetings.length)];
 
     // Apply greeting boost
@@ -3317,7 +3342,8 @@ function doBarAction(key, conv, npc) {
     }
 
     // Get response
-    const responses = conv.responses[npc.vibe.id];
+    const vibeKey = npc.isPam ? 'pam' : npc.vibe.id;
+    const responses = conv.responses[vibeKey];
     const response = responses[Math.floor(Math.random() * responses.length)];
 
     // Apply stat boosts
@@ -3642,10 +3668,27 @@ function init() {
     canvas.addEventListener('touchmove', onCanvasMove, { passive: false });
     canvas.addEventListener('touchend', onCanvasUp);
 
+    // Bean naming
+    $('bean-name-save').addEventListener('click', () => {
+        const name = $('bean-name-input').value.trim();
+        if (name) {
+            state.beanName = name;
+            $('name-overlay').classList.add('hidden');
+            updateBeanName();
+            saveGame();
+        }
+    });
+
     // Initial UI
     updateStatBars();
     updateCoinDisplay();
     updateStatusText();
+    updateBeanName();
+
+    // Show naming overlay if no name set
+    if (!state.beanName) {
+        $('name-overlay').classList.remove('hidden');
+    }
 
     if (!state.alive) {
         $('passed-out-overlay').classList.remove('hidden');

@@ -11,7 +11,7 @@
 <body>
     <!-- Title Bar -->
     <div id="title-bar">
-        <span class="title-text">Bean Buddy</span>
+        <span class="title-text" id="title-text">Bean Buddy</span>
         <div class="coin-display">
             <span class="coin-icon">&#9733;</span>
             <span id="coin-count">0</span>
@@ -180,6 +180,16 @@
     <!-- Bean Beats Screen -->
     <div id="beats-screen" class="screen hidden">
         <canvas id="beats-canvas" width="400" height="500"></canvas>
+    </div>
+
+    <!-- Name Your Bean Overlay -->
+    <div id="name-overlay" class="hidden">
+        <div class="name-content">
+            <h2>Name Your Bean!</h2>
+            <p>What should we call this little guy?</p>
+            <input type="text" id="bean-name-input" placeholder="Enter a name..." maxlength="20">
+            <button id="bean-name-save">Let's Go!</button>
+        </div>
     </div>
 
     <!-- Passed Out Overlay -->
