@@ -116,11 +116,11 @@ body {
     align-items: center;
     background: #9FBFB0;
     position: relative;
+    overflow: auto;
+    -webkit-overflow-scrolling: touch;
 }
 
 #room-canvas {
-    width: 100%;
-    max-width: 400px;
     image-rendering: -webkit-optimize-contrast;
     image-rendering: pixelated;
     image-rendering: crisp-edges;

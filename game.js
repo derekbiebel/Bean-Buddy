@@ -288,6 +288,10 @@ function updateRoomCanvas() {
     if (canvas.width !== size.w || canvas.height !== size.h) {
         canvas.width = size.w;
         canvas.height = size.h;
+        // Set CSS display size to match — bigger rooms show bigger
+        canvas.style.width = size.w + 'px';
+        canvas.style.height = size.h + 'px';
+        canvas.style.minWidth = size.w + 'px';
         initPixelBuffer('room', canvas);
     }
 }
