@@ -31,6 +31,7 @@ const FURNITURE = [
     { id: 'palm',      name: 'Mini Palm',      icon: '🌴', price: 10,  desc: 'Tropical getaway' },
     { id: 'herb',      name: 'Herb Garden',    icon: '🌱', price: 6,   desc: 'Fresh basil and thyme' },
     { id: 'poster',    name: 'Disc Golf Poster', icon: '🖼️', price: 4, desc: 'Send it!' },
+    { id: 'goose',     name: 'Goose Poster',    icon: '🪿', price: 0,  desc: 'Honk' },
     { id: 'lamp',      name: 'Lava Lamp',      icon: '🪔', price: 8,   desc: 'Groovy vibes' },
     { id: 'shelf',     name: 'Trophy Shelf',   icon: '🏆', price: 10,  desc: 'Show off your aces' },
     { id: 'fridge',    name: 'Mini Fridge',    icon: '🧊', price: 12,  desc: 'Keep the beers cold' },
@@ -40,6 +41,8 @@ const FURNITURE = [
     { id: 'aquarium',  name: 'Fish Tank',      icon: '🐠', price: 25,  desc: 'Lil fishies!' },
     { id: 'neon',      name: 'Neon Sign',      icon: '💡', price: 30,  desc: '"BEANS" in neon' },
     { id: 'arcade',    name: 'Arcade Machine',  icon: '🕹️', price: 50,  desc: 'The ultimate flex' },
+    { id: 'sign515',   name: '515 Sign',        icon: '🪧', price: 100, desc: '515 represent', secret: true },
+    { id: 'losertrophy', name: '#1 Loser Trophy', icon: '🏆', price: 1000, desc: 'You earned this... somehow', secret: true },
 ];
 
 // ---- RANDOM EVENTS ----
@@ -56,6 +59,17 @@ const RANDOM_EVENTS = [
     { text: 'Your bean won a raffle at the course!', coins: 8 },
     { text: 'Rain cancelled outdoor plans...', stat: 'fun', amount: -8 },
     { text: 'Your bean got invited to a cookout!', stat: 'social', amount: 20, stat2: 'hunger', amount2: 10 },
+    // Rare easter egg events (same pool, just less common themes)
+    { text: 'Your bean found a four-leaf clover! Lucky day!', coins: 15 },
+    { text: 'A mysterious bean left a note: "The beans know." Nobody knows what it means.', stat: 'fun', amount: 5 },
+    { text: 'Your bean accidentally texted their ex. Awkward silence ensues.', stat: 'social', amount: -15 },
+    { text: 'Your bean tried to cook and set off the smoke alarm. The whole building smells like burnt toast.', stat: 'hunger', amount: -20, stat2: 'fun', amount2: 5 },
+    { text: 'Pinto Bean Pam sent your bean a postcard from the bar. She never left the bar. The postcard is from the bar.', stat: 'social', amount: 8 },
+    { text: 'Your bean found a tiny bean inside a bigger bean. Existential crisis activated.', stat: 'fun', amount: -5, coins: 3 },
+    { text: 'A bird landed on your bean\'s head. They\'re best friends now.', stat: 'social', amount: 12, stat2: 'fun', amount2: 8 },
+    { text: 'Your bean discovered they\'ve been holding the disc upside down this whole time.', stat: 'fun', amount: 15 },
+    { text: 'Your bean stepped on a LEGO. Critical damage. Emotional damage.', stat: 'fun', amount: -12 },
+    { text: 'Someone complimented your bean\'s room. Day = made.', stat: 'social', amount: 10, stat2: 'fun', amount2: 10 },
 ];
 
 // ---- DISC GOLF ----
@@ -791,6 +805,24 @@ function drawFurnitureIcon(id) {
             c.fillStyle = '#F0F0F0'; c.font = '6px sans-serif'; c.textAlign = 'center'; c.textBaseline = 'middle';
             c.fillText('DISC', 0, -5); c.fillText('GOLF', 0, 4);
             break;
+        case 'goose':
+            // Frame
+            c.fillStyle = '#3D2B1A'; c.fillRect(-14, -14, 28, 28);
+            c.fillStyle = '#88B868'; c.fillRect(-12, -12, 24, 24);
+            // Goose body
+            c.fillStyle = '#F0F0F0';
+            c.beginPath(); c.ellipse(0, 4, 8, 6, 0, 0, Math.PI * 2); c.fill();
+            // Neck
+            c.fillStyle = '#F0F0F0';
+            c.beginPath(); c.ellipse(-2, -4, 3, 8, -0.2, 0, Math.PI * 2); c.fill();
+            // Head
+            c.beginPath(); c.arc(-2, -10, 4, 0, Math.PI * 2); c.fill();
+            // Beak
+            c.fillStyle = '#E8A040';
+            c.beginPath(); c.moveTo(-6, -11); c.lineTo(-10, -9); c.lineTo(-6, -8); c.closePath(); c.fill();
+            // Eye
+            c.fillStyle = '#222'; c.beginPath(); c.arc(-3, -11, 1, 0, Math.PI * 2); c.fill();
+            break;
         case 'lamp':
             c.fillStyle = '#888'; c.fillRect(-1, -4, 2, 18);
             c.fillStyle = '#E8A040';
@@ -862,6 +894,39 @@ function drawFurnitureIcon(id) {
             c.fillStyle = '#E04040'; c.beginPath(); c.arc(-4, 6, 3, 0, Math.PI * 2); c.fill();
             c.fillStyle = '#40C040'; c.beginPath(); c.arc(4, 6, 3, 0, Math.PI * 2); c.fill();
             c.fillStyle = '#F0C040'; c.fillRect(-2, 10, 4, 4);
+            break;
+        case 'sign515':
+            // Sign post
+            c.fillStyle = '#888'; c.fillRect(-2, -2, 4, 20);
+            // Sign board
+            c.fillStyle = '#2255AA'; c.fillRect(-18, -18, 36, 20);
+            c.strokeStyle = '#F0C674'; c.lineWidth = 2; c.strokeRect(-18, -18, 36, 20);
+            // Text
+            c.fillStyle = '#F0C674';
+            c.font = '12px "Press Start 2P", monospace';
+            c.textAlign = 'center'; c.textBaseline = 'middle';
+            c.fillText('515', 0, -9);
+            break;
+        case 'losertrophy':
+            // Trophy base
+            c.fillStyle = '#C4A043'; c.fillRect(-10, 8, 20, 6);
+            c.fillStyle = '#D4B053'; c.fillRect(-6, 2, 12, 8);
+            // Trophy cup
+            c.fillStyle = '#F0C674';
+            c.beginPath();
+            c.moveTo(-14, -14); c.lineTo(14, -14);
+            c.lineTo(10, 2); c.lineTo(-10, 2);
+            c.closePath(); c.fill();
+            // Handles
+            c.strokeStyle = '#F0C674'; c.lineWidth = 3;
+            c.beginPath(); c.arc(-14, -6, 6, -1.2, 1.2); c.stroke();
+            c.beginPath(); c.arc(14, -6, 6, Math.PI - 1.2, Math.PI + 1.2); c.stroke();
+            // Text
+            c.fillStyle = '#8B6538';
+            c.font = '5px "Press Start 2P", monospace';
+            c.textAlign = 'center'; c.textBaseline = 'middle';
+            c.fillText('#1', 0, -10);
+            c.fillText('LOSER', 0, -3);
             break;
         default:
             // Fallback — draw a colored square with the first letter
@@ -1491,7 +1556,11 @@ function renderShop() {
     }
     container.appendChild(upgradeDiv);
 
-    FURNITURE.filter(item => !item.starter).forEach(item => {
+    // Check if all regular (non-starter, non-secret) items are owned
+    const regularItems = FURNITURE.filter(item => !item.starter && !item.secret);
+    const allRegularOwned = regularItems.every(item => state.furniture.includes(item.id));
+
+    FURNITURE.filter(item => !item.starter && (!item.secret || allRegularOwned)).forEach(item => {
         const owned = state.furniture.includes(item.id);
         const canAfford = state.coins >= item.price;
         const div = document.createElement('div');
@@ -2205,6 +2274,26 @@ const JAM_MOMENTS = [
 function triggerJamShow() {
     if (!state.alive) return;
     const band = JAM_BANDS[Math.floor(Math.random() * JAM_BANDS.length)];
+
+    // 25% chance of a bad trip
+    if (Math.random() < 0.25) {
+        const loss = Math.min(10, state.coins);
+        state.coins -= loss;
+        state.hunger = Math.max(0, state.hunger - 15);
+        let msg = `🎸 ${band} is playing!\n\nYour bean did too many drugs at the show... 🫠\n\n-${loss} coins  -15 hunger`;
+        beanAction = 'drink';
+        beanActionTimer = 0;
+        showNotification(msg);
+        updateStatBars();
+        updateCoinDisplay();
+        const btn = $('btn-jam');
+        btn.classList.add('cooldown');
+        btn.disabled = true;
+        setTimeout(() => { btn.classList.remove('cooldown'); btn.disabled = false; }, 5000);
+        saveGame();
+        return;
+    }
+
     const moment = JAM_MOMENTS[Math.floor(Math.random() * JAM_MOMENTS.length)];
 
     state.fun = Math.min(100, state.fun + moment.fun);
@@ -5929,9 +6018,43 @@ function renderBarUI() {
     }
 }
 
+// Pam visit counter (persisted in state)
+const PAM_EASTER_EGGS = [
+    '"I\'ve seen you here too much. Maybe take it easy, hon."',
+    '"You know I love you, but you\'re here more than the bartender."',
+    '"Honey... this is an intervention. From ME. Pam. Think about that."',
+    '"At this point I should start charging you rent for that stool."',
+    '"I told the bartender you\'re my emotional support bean. They believed me."',
+    '"You know the sun exists, right? Big yellow thing? Outside?"',
+    '"I just realized I\'ve told you my divorce story four times now."',
+    '"The bartender asked if you live here. I said yes."',
+    '"Your bean should NOT know my middle name, my blood type, AND my wifi password. But here we are."',
+    '"If you come back one more time tonight I\'m adopting you."',
+    '"I just realized I don\'t actually know your real name. Wait — do beans HAVE real names?"',
+    '"The bartender cut me off once. ONCE. Now we have an understanding."',
+];
+
 function startConversation(npc) {
     barState.talkingTo = npc;
     barState.phase = 'dialogue';
+
+    // Track Pam visits
+    if (npc.isPam) {
+        if (!state.pamVisits) state.pamVisits = 0;
+        state.pamVisits++;
+
+        // Every 10th visit, Pam has something special to say
+        if (state.pamVisits % 10 === 0) {
+            const eggIndex = Math.floor(state.pamVisits / 10 - 1) % PAM_EASTER_EGGS.length;
+            barState.greeting = PAM_EASTER_EGGS[eggIndex];
+            state.social = Math.min(100, state.social + CONVERSATIONS.greet.social);
+            state.fun = Math.min(100, state.fun + CONVERSATIONS.greet.fun);
+            drawBar();
+            renderBarUI();
+            saveGame();
+            return;
+        }
+    }
 
     // Get greeting
     const vibeKey = npc.isPam ? 'pam' : npc.vibe.id;
@@ -6072,7 +6195,42 @@ function findItemAtPos(pos) {
     return null;
 }
 
+// Bean tap easter egg
+let beanTapCount = 0;
+let beanTapTimer = null;
+const BEAN_TAP_MESSAGES = [
+    'Stop poking me!',
+    'Hey! That tickles!',
+    'I\'m trying to vibe here!',
+    'Do that again and I\'m calling Pam.',
+    'BEANS HAVE FEELINGS TOO.',
+    'Ok that\'s it. I\'m unionizing.',
+    '...are you ok? Do YOU need help?',
+    '*giggles* ...ok one more.',
+];
+
 function onCanvasDown(e) {
+    // Bean tap easter egg (when not in decorate mode)
+    if (!decorateMode && currentScreen === 'room') {
+        const pos = getCanvasPos(e);
+        const w = canvas.width;
+        const h = canvas.height;
+        const beanX = w / 2;
+        const beanY = h * 0.72 - (w * 0.28) * 0.45;
+        const dx = pos.x - beanX;
+        const dy = pos.y - beanY;
+        if (Math.sqrt(dx * dx + dy * dy) < 35) {
+            beanTapCount++;
+            clearTimeout(beanTapTimer);
+            beanTapTimer = setTimeout(() => { beanTapCount = 0; }, 2000);
+            if (beanTapCount >= 8) {
+                const msg = BEAN_TAP_MESSAGES[Math.floor(Math.random() * BEAN_TAP_MESSAGES.length)];
+                showNotification(bn() + ': "' + msg + '"');
+                beanTapCount = 0;
+            }
+            return;
+        }
+    }
     if (!decorateMode) return;
     e.preventDefault();
     const pos = getCanvasPos(e);
