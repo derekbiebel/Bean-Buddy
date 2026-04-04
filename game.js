@@ -1410,9 +1410,8 @@ function doAction(action) {
             enterBar();
             return;
 
-        case 'disc':
-            switchScreen('discgolf');
-            startDiscGolf();
+        case 'jam':
+            triggerJamShow();
             return;
     }
 
@@ -2180,6 +2179,502 @@ function drawDiscFlying() {
     discCtx.ellipse(discState.discX, discState.discY, 8, 4, 0.3, 0, Math.PI * 2);
     discCtx.fill();
     discCtx.stroke();
+}
+
+// ---- JAM BAND SHOW ----
+const JAM_BANDS = [
+    'The Lima Beans', 'Pinto Floyd', 'Grateful Bean', 'Bean Jam',
+    'String Cheese Bean', 'Kidney\'s Dead', 'Bean Phish', 'The Beanles',
+];
+
+const JAM_MOMENTS = [
+    { text: 'The guitarist rips a face-melting solo!', fun: 15, social: 5 },
+    { text: 'The whole crowd is vibing together!', fun: 10, social: 15 },
+    { text: 'Someone hands your bean a glow stick!', fun: 12, social: 8 },
+    { text: 'The bassist drops the funkiest line!', fun: 14, social: 4 },
+    { text: 'Your bean starts a dance circle!', fun: 8, social: 18 },
+    { text: 'The drummer goes absolutely WILD!', fun: 16, social: 3 },
+    { text: 'Your bean makes friends with the bean next to them!', fun: 5, social: 20 },
+    { text: 'They played your bean\'s favorite song!', fun: 20, social: 5 },
+    { text: 'The light show is INCREDIBLE!', fun: 12, social: 6 },
+    { text: 'Your bean catches a pick thrown from stage!', fun: 18, social: 8, coins: 3 },
+    { text: 'Encore! The crowd goes nuts!', fun: 15, social: 12 },
+    { text: 'Your bean crowd surfs!', fun: 20, social: 10 },
+];
+
+function triggerJamShow() {
+    if (!state.alive) return;
+    const band = JAM_BANDS[Math.floor(Math.random() * JAM_BANDS.length)];
+    const moment = JAM_MOMENTS[Math.floor(Math.random() * JAM_MOMENTS.length)];
+
+    state.fun = Math.min(100, state.fun + moment.fun);
+    state.social = Math.min(100, state.social + moment.social);
+    if (moment.coins) state.coins += moment.coins;
+
+    let msg = `🎸 ${band} is playing!\n\n${moment.text}\n\n+${moment.fun} fun  +${moment.social} social`;
+    if (moment.coins) msg += `  +${moment.coins} coins`;
+
+    beanAction = 'friends';
+    beanActionTimer = 0;
+    showNotification(msg);
+    updateStatBars();
+    updateCoinDisplay();
+
+    // Cooldown
+    const btn = $('btn-jam');
+    btn.classList.add('cooldown');
+    btn.disabled = true;
+    setTimeout(() => { btn.classList.remove('cooldown'); btn.disabled = false; }, 5000);
+
+    saveGame();
+}
+
+// ---- JUMPING BEAN ----
+const jumpCanvas = $('jump-canvas');
+let jumpCtx = jumpCanvas.getContext('2d');
+let JW = jumpCanvas.width;
+let JH = jumpCanvas.height;
+
+let jumpRAF = null;
+
+const PLATFORM_W = 60;
+const PLATFORM_H = 12;
+
+let jump = {
+    phase: 'idle', // idle, playing, dead
+    beanX: 0,
+    beanY: 0,
+    beanVY: 0,
+    platforms: [],
+    cameraY: 0,
+    score: 0,
+    bestScore: 0,
+    coinsCollected: 0,
+    coins: [],
+    tiltX: 0, // -1 to 1 for mobile tilt / key input
+};
+
+function resizeJumpCanvas() {
+    const screen = $('jump-screen');
+    const navH = $('nav-bar').offsetHeight || 40;
+    const titleH = $('title-bar').offsetHeight || 40;
+    const availH = window.innerHeight - navH - titleH;
+    const availW = Math.min(400, screen.offsetWidth || 400);
+    let cw = availW;
+    let ch = Math.min(Math.floor(cw * 1.5), availH);
+    jumpCanvas.width = cw;
+    jumpCanvas.height = ch;
+    JW = cw;
+    JH = ch;
+}
+
+function startJump() {
+    stopJump();
+    resizeJumpCanvas();
+    const saved = localStorage.getItem('jumpBest');
+    if (saved) jump.bestScore = parseInt(saved) || 0;
+    resetJump();
+    jumpLoop();
+}
+
+function stopJump() {
+    if (jumpRAF) { cancelAnimationFrame(jumpRAF); jumpRAF = null; }
+}
+
+function resetJump() {
+    jump.phase = 'idle';
+    jump.beanX = JW / 2;
+    jump.beanY = JH - 80;
+    jump.beanVY = 0;
+    jump.cameraY = 0;
+    jump.score = 0;
+    jump.coinsCollected = 0;
+    jump.tiltX = 0;
+    jump.coins = [];
+
+    // Generate initial platforms
+    jump.platforms = [];
+    // Starting platform under the bean
+    jump.platforms.push({ x: JW / 2 - PLATFORM_W / 2, y: JH - 60, type: 'normal' });
+    // Generate upward
+    for (let i = 1; i < 20; i++) {
+        addJumpPlatform(JH - 60 - i * 60);
+    }
+}
+
+function addJumpPlatform(y) {
+    const x = Math.random() * (JW - PLATFORM_W);
+    const r = Math.random();
+    let type = 'normal';
+    if (r < 0.08) type = 'break'; // breaks when you land on it
+    else if (r < 0.15) type = 'spring'; // extra bounce
+
+    jump.platforms.push({ x, y, type, broken: false });
+
+    // Maybe add a coin above the platform
+    if (Math.random() < 0.25) {
+        jump.coins.push({ x: x + PLATFORM_W / 2, y: y - 30, collected: false });
+    }
+}
+
+function jumpLoop() {
+    try {
+        jumpUpdate();
+        jumpDraw();
+    } catch (e) { console.error('Jump error:', e); }
+    jumpRAF = requestAnimationFrame(jumpLoop);
+}
+
+function jumpUpdate() {
+    if (jump.phase !== 'playing') return;
+
+    // Gravity
+    jump.beanVY += 0.4;
+    jump.beanY += jump.beanVY;
+
+    // Horizontal movement
+    jump.beanX += jump.tiltX * 5;
+    // Wrap around
+    if (jump.beanX < -15) jump.beanX = JW + 15;
+    if (jump.beanX > JW + 15) jump.beanX = -15;
+
+    // Camera follows bean upward
+    const screenY = jump.beanY - jump.cameraY;
+    if (screenY < JH * 0.4) {
+        jump.cameraY = jump.beanY - JH * 0.4;
+    }
+
+    // Score = height reached
+    const height = Math.floor((-jump.cameraY) / 10);
+    if (height > jump.score) jump.score = height;
+
+    // Platform collision (only when falling)
+    if (jump.beanVY > 0) {
+        for (const p of jump.platforms) {
+            if (p.broken) continue;
+            const py = p.y - jump.cameraY;
+            const beanBottom = jump.beanY + 14;
+            const prevBottom = beanBottom - jump.beanVY;
+
+            if (jump.beanX > p.x - 10 && jump.beanX < p.x + PLATFORM_W + 10 &&
+                beanBottom >= p.y && prevBottom <= p.y) {
+                if (p.type === 'break') {
+                    p.broken = true;
+                } else if (p.type === 'spring') {
+                    jump.beanVY = -16;
+                } else {
+                    jump.beanVY = -11;
+                }
+                jump.beanY = p.y - 14;
+            }
+        }
+    }
+
+    // Coin collection
+    for (const c of jump.coins) {
+        if (c.collected) continue;
+        const dx = jump.beanX - c.x;
+        const dy = jump.beanY - c.y;
+        if (Math.sqrt(dx * dx + dy * dy) < 20) {
+            c.collected = true;
+            jump.coinsCollected++;
+        }
+    }
+
+    // Generate new platforms above
+    const topPlatY = Math.min(...jump.platforms.map(p => p.y));
+    if (topPlatY > jump.cameraY - JH) {
+        for (let i = 0; i < 5; i++) {
+            addJumpPlatform(topPlatY - 60 * (i + 1));
+        }
+    }
+
+    // Remove platforms far below
+    jump.platforms = jump.platforms.filter(p => p.y - jump.cameraY < JH + 100);
+    jump.coins = jump.coins.filter(c => c.y - jump.cameraY < JH + 100);
+
+    // Death: fell below screen
+    if (jump.beanY - jump.cameraY > JH + 50) {
+        jumpDie();
+    }
+}
+
+function jumpDie() {
+    jump.phase = 'dead';
+    if (jump.score > jump.bestScore) {
+        jump.bestScore = jump.score;
+        localStorage.setItem('jumpBest', jump.bestScore);
+    }
+    state.coins += jump.coinsCollected;
+    const funBoost = Math.min(25, Math.floor(jump.score / 5));
+    state.fun = Math.min(100, state.fun + funBoost);
+    if (jump.coinsCollected > 0 || funBoost > 0) saveGame();
+}
+
+function jumpDraw() {
+    jumpCtx = jumpCanvas.getContext('2d');
+    jumpCtx.clearRect(0, 0, JW, JH);
+
+    // Sky gradient based on height
+    const heightPct = Math.min(1, jump.score / 200);
+    const r = Math.floor(107 - heightPct * 60);
+    const g = Math.floor(196 - heightPct * 80);
+    const b = Math.floor(232 + heightPct * 20);
+    jumpCtx.fillStyle = `rgb(${r},${g},${b})`;
+    jumpCtx.fillRect(0, 0, JW, JH);
+
+    // Clouds (parallax)
+    jumpCtx.fillStyle = 'rgba(255,255,255,0.4)';
+    for (let i = 0; i < 6; i++) {
+        const cy = ((i * 150 + 50) - jump.cameraY * 0.3) % (JH + 100) - 50;
+        const cx = (i * 80 + 30) % JW;
+        jumpCtx.beginPath();
+        jumpCtx.ellipse(cx, cy, 35, 12, 0, 0, Math.PI * 2);
+        jumpCtx.fill();
+    }
+
+    // Platforms
+    for (const p of jump.platforms) {
+        if (p.broken) continue;
+        const px = p.x;
+        const py = p.y - jump.cameraY;
+        if (py < -20 || py > JH + 20) continue;
+
+        if (p.type === 'spring') {
+            // Spring platform — bouncy green
+            jumpCtx.fillStyle = '#4ADE80';
+            jumpCtx.fillRect(px, py, PLATFORM_W, PLATFORM_H);
+            jumpCtx.fillStyle = '#2D9D50';
+            jumpCtx.fillRect(px, py + PLATFORM_H - 3, PLATFORM_W, 3);
+            // Spring coil
+            jumpCtx.strokeStyle = '#888';
+            jumpCtx.lineWidth = 2;
+            jumpCtx.beginPath();
+            jumpCtx.moveTo(px + PLATFORM_W / 2, py);
+            jumpCtx.lineTo(px + PLATFORM_W / 2 - 4, py - 6);
+            jumpCtx.lineTo(px + PLATFORM_W / 2 + 4, py - 10);
+            jumpCtx.lineTo(px + PLATFORM_W / 2, py - 14);
+            jumpCtx.stroke();
+        } else if (p.type === 'break') {
+            // Breakable platform — cracked, lighter
+            jumpCtx.fillStyle = '#C8A878';
+            jumpCtx.fillRect(px, py, PLATFORM_W, PLATFORM_H);
+            jumpCtx.strokeStyle = '#A08858';
+            jumpCtx.lineWidth = 1;
+            jumpCtx.beginPath();
+            jumpCtx.moveTo(px + PLATFORM_W * 0.3, py);
+            jumpCtx.lineTo(px + PLATFORM_W * 0.5, py + PLATFORM_H);
+            jumpCtx.moveTo(px + PLATFORM_W * 0.7, py);
+            jumpCtx.lineTo(px + PLATFORM_W * 0.6, py + PLATFORM_H);
+            jumpCtx.stroke();
+        } else {
+            // Normal platform — solid wood
+            jumpCtx.fillStyle = '#8B6538';
+            jumpCtx.fillRect(px, py, PLATFORM_W, PLATFORM_H);
+            jumpCtx.fillStyle = '#A07848';
+            jumpCtx.fillRect(px, py, PLATFORM_W, 4);
+            jumpCtx.fillStyle = '#6B4F2E';
+            jumpCtx.fillRect(px, py + PLATFORM_H - 2, PLATFORM_W, 2);
+        }
+    }
+
+    // Coins
+    for (const c of jump.coins) {
+        if (c.collected) continue;
+        const cx = c.x;
+        const cy = c.y - jump.cameraY;
+        if (cy < -20 || cy > JH + 20) continue;
+
+        jumpCtx.fillStyle = '#F0C674';
+        jumpCtx.beginPath();
+        jumpCtx.arc(cx, cy, 8, 0, Math.PI * 2);
+        jumpCtx.fill();
+        jumpCtx.strokeStyle = '#C4A043';
+        jumpCtx.lineWidth = 1.5;
+        jumpCtx.stroke();
+        jumpCtx.fillStyle = '#C4A043';
+        jumpCtx.font = '7px sans-serif';
+        jumpCtx.textAlign = 'center';
+        jumpCtx.textBaseline = 'middle';
+        jumpCtx.fillText('★', cx, cy + 1);
+    }
+
+    // Bean character
+    const beanScreenY = jump.beanY - jump.cameraY;
+    // Shadow
+    jumpCtx.fillStyle = 'rgba(0,0,0,0.1)';
+    jumpCtx.beginPath();
+    jumpCtx.ellipse(jump.beanX, beanScreenY + 14, 12, 4, 0, 0, Math.PI * 2);
+    jumpCtx.fill();
+    // Body
+    jumpCtx.fillStyle = '#8B6B4A';
+    jumpCtx.beginPath();
+    jumpCtx.ellipse(jump.beanX, beanScreenY, 14, 16, 0, 0, Math.PI * 2);
+    jumpCtx.fill();
+    // Highlight
+    jumpCtx.fillStyle = 'rgba(255,255,255,0.15)';
+    jumpCtx.beginPath();
+    jumpCtx.ellipse(jump.beanX - 4, beanScreenY - 5, 5, 8, -0.3, 0, Math.PI * 2);
+    jumpCtx.fill();
+    // Outline
+    jumpCtx.strokeStyle = '#5C4530';
+    jumpCtx.lineWidth = 2;
+    jumpCtx.beginPath();
+    jumpCtx.ellipse(jump.beanX, beanScreenY, 14, 16, 0, 0, Math.PI * 2);
+    jumpCtx.stroke();
+    // Eyes
+    jumpCtx.fillStyle = '#3D2B1A';
+    jumpCtx.beginPath();
+    jumpCtx.arc(jump.beanX - 4, beanScreenY - 4, 2.5, 0, Math.PI * 2);
+    jumpCtx.arc(jump.beanX + 4, beanScreenY - 4, 2.5, 0, Math.PI * 2);
+    jumpCtx.fill();
+    // Eye shine
+    jumpCtx.fillStyle = 'white';
+    jumpCtx.beginPath();
+    jumpCtx.arc(jump.beanX - 3, beanScreenY - 5, 1, 0, Math.PI * 2);
+    jumpCtx.arc(jump.beanX + 5, beanScreenY - 5, 1, 0, Math.PI * 2);
+    jumpCtx.fill();
+    // Mouth — happy going up, worried going down
+    jumpCtx.strokeStyle = '#3D2B1A';
+    jumpCtx.lineWidth = 1.5;
+    jumpCtx.beginPath();
+    if (jump.beanVY < 0) {
+        jumpCtx.arc(jump.beanX, beanScreenY + 2, 4, 0.2, Math.PI - 0.2);
+    } else {
+        jumpCtx.moveTo(jump.beanX - 3, beanScreenY + 3);
+        jumpCtx.lineTo(jump.beanX + 3, beanScreenY + 3);
+    }
+    jumpCtx.stroke();
+
+    // HUD
+    jumpCtx.fillStyle = 'rgba(0,0,0,0.3)';
+    jumpCtx.fillRect(0, 0, JW, 28);
+    jumpCtx.fillStyle = '#F5E6D0';
+    jumpCtx.font = '11px "Press Start 2P", monospace';
+    jumpCtx.textAlign = 'left';
+    jumpCtx.textBaseline = 'top';
+    jumpCtx.fillText('↑ ' + jump.score, 8, 7);
+    jumpCtx.fillStyle = '#F0C674';
+    jumpCtx.textAlign = 'right';
+    jumpCtx.fillText('★ ' + jump.coinsCollected, JW - 8, 7);
+
+    // Idle screen
+    if (jump.phase === 'idle') {
+        jumpCtx.fillStyle = 'rgba(0,0,0,0.55)';
+        jumpCtx.fillRect(0, 0, JW, JH);
+
+        jumpCtx.fillStyle = '#8B6B4A';
+        jumpCtx.font = '14px "Press Start 2P", monospace';
+        jumpCtx.textAlign = 'center';
+        jumpCtx.textBaseline = 'middle';
+        jumpCtx.fillText('JUMPING BEAN', JW / 2, JH * 0.3);
+
+        jumpCtx.fillStyle = '#F0C674';
+        jumpCtx.font = '7px "Press Start 2P", monospace';
+        jumpCtx.fillText('Tilt or use arrow keys!', JW / 2, JH * 0.4);
+
+        const blink = Math.sin(performance.now() * 0.004) > 0;
+        if (blink) {
+            jumpCtx.fillStyle = '#F5E6D0';
+            jumpCtx.font = '9px "Press Start 2P", monospace';
+            jumpCtx.fillText('TAP TO START', JW / 2, JH * 0.53);
+        }
+
+        if (jump.bestScore > 0) {
+            jumpCtx.fillStyle = 'rgba(255,255,255,0.4)';
+            jumpCtx.font = '8px "Press Start 2P", monospace';
+            jumpCtx.fillText('Best: ' + jump.bestScore, JW / 2, JH * 0.62);
+        }
+    }
+
+    // Dead screen
+    if (jump.phase === 'dead') {
+        jumpCtx.fillStyle = 'rgba(0,0,0,0.6)';
+        jumpCtx.fillRect(0, 0, JW, JH);
+
+        jumpCtx.fillStyle = '#E87D5F';
+        jumpCtx.font = '14px "Press Start 2P", monospace';
+        jumpCtx.textAlign = 'center';
+        jumpCtx.textBaseline = 'middle';
+        jumpCtx.fillText(state.beanName ? state.beanName + ' fell!' : 'SPLAT!', JW / 2, JH * 0.28);
+
+        jumpCtx.fillStyle = '#F5E6D0';
+        jumpCtx.font = '10px "Press Start 2P", monospace';
+        jumpCtx.fillText('Height: ' + jump.score, JW / 2, JH * 0.4);
+        jumpCtx.fillStyle = 'rgba(255,255,255,0.4)';
+        jumpCtx.fillText('Best: ' + jump.bestScore, JW / 2, JH * 0.48);
+
+        jumpCtx.fillStyle = '#F0C674';
+        jumpCtx.font = '9px "Press Start 2P", monospace';
+        jumpCtx.fillText('+' + jump.coinsCollected + ' coins', JW / 2, JH * 0.58);
+
+        const blink = Math.sin(performance.now() * 0.005) > 0;
+        if (blink) {
+            jumpCtx.fillStyle = '#F5E6D0';
+            jumpCtx.font = '8px "Press Start 2P", monospace';
+            jumpCtx.fillText('TAP TO RETRY', JW / 2, JH * 0.7);
+        }
+    }
+}
+
+// Jump input
+function onJumpInput(e) {
+    if (currentScreen !== 'jump') return;
+    e.preventDefault();
+    if (jump.phase === 'idle') {
+        jump.phase = 'playing';
+        jump.beanVY = -11;
+        return;
+    }
+    if (jump.phase === 'dead') {
+        resetJump();
+        jump.phase = 'playing';
+        jump.beanVY = -11;
+    }
+}
+
+// Tilt controls for mobile
+let jumpTouchX = null;
+function onJumpTouchStart(e) {
+    if (currentScreen !== 'jump') return;
+    if (jump.phase !== 'playing') { onJumpInput(e); return; }
+    e.preventDefault();
+    jumpTouchX = e.touches[0].clientX;
+}
+
+function onJumpTouchMove(e) {
+    if (currentScreen !== 'jump' || jump.phase !== 'playing' || jumpTouchX === null) return;
+    e.preventDefault();
+    const x = e.touches[0].clientX;
+    const dx = x - jumpTouchX;
+    jump.tiltX = Math.max(-1, Math.min(1, dx / 40));
+}
+
+function onJumpTouchEnd(e) {
+    if (currentScreen !== 'jump') return;
+    jump.tiltX = 0;
+    jumpTouchX = null;
+}
+
+function onJumpKeyDown(e) {
+    if (currentScreen !== 'jump') return;
+    if (jump.phase !== 'playing') {
+        if (e.code === 'Space' || e.code.startsWith('Arrow')) {
+            e.preventDefault();
+            jump.phase = 'playing';
+            jump.beanVY = -11;
+        }
+        return;
+    }
+    if (e.code === 'ArrowLeft' || e.code === 'KeyA') { jump.tiltX = -1; e.preventDefault(); }
+    if (e.code === 'ArrowRight' || e.code === 'KeyD') { jump.tiltX = 1; e.preventDefault(); }
+}
+
+function onJumpKeyUp(e) {
+    if (currentScreen !== 'jump') return;
+    if (e.code === 'ArrowLeft' || e.code === 'KeyA' || e.code === 'ArrowRight' || e.code === 'KeyD') {
+        jump.tiltX = 0;
+    }
 }
 
 // ---- SNAKE GAME ----
@@ -4506,6 +5001,7 @@ function switchScreen(screen) {
         $('discgolf-screen').classList.toggle('hidden', screen !== 'discgolf');
         $('flappy-screen').classList.toggle('hidden', screen !== 'flappy');
         $('snake-screen').classList.toggle('hidden', screen !== 'snake');
+        $('jump-screen').classList.toggle('hidden', screen !== 'jump');
         $('beats-screen').classList.toggle('hidden', screen !== 'beats');
         $('decorate-bar').classList.add('hidden');
     }
@@ -4521,6 +5017,8 @@ function switchScreen(screen) {
     if (screen !== 'flappy') stopFlappy();
     if (screen === 'snake') startSnake();
     if (screen !== 'snake') stopSnake();
+    if (screen === 'jump') startJump();
+    if (screen !== 'jump') stopJump();
     if (screen === 'beats') startBeats();
     if (screen !== 'beats') stopBeats();
 }
@@ -4589,6 +5087,14 @@ function init() {
             flapJump();
         }
     });
+
+    // Jumping Bean input
+    jumpCanvas.addEventListener('click', onJumpInput);
+    jumpCanvas.addEventListener('touchstart', onJumpTouchStart, { passive: false });
+    jumpCanvas.addEventListener('touchmove', onJumpTouchMove, { passive: false });
+    jumpCanvas.addEventListener('touchend', onJumpTouchEnd);
+    document.addEventListener('keydown', onJumpKeyDown);
+    document.addEventListener('keyup', onJumpKeyUp);
 
     // Snake input
     snakeCanvas.addEventListener('click', onSnakeInput);
