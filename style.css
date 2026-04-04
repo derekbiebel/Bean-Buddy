@@ -902,6 +902,52 @@ body {
     border-bottom-width: 1px;
 }
 
+/* ===== BEAN LAUNCH ===== */
+#launch-screen {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    background: #1A1825;
+    padding: 0;
+    overflow: hidden;
+}
+
+#launch-screen.hidden {
+    display: none !important;
+}
+
+#launch-canvas {
+    width: 100%;
+    max-width: 400px;
+    flex: 1;
+    min-height: 0;
+    touch-action: none;
+    -webkit-touch-callout: none;
+}
+
+/* ===== CROSSY BEAN ===== */
+#crossy-screen {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    background: #1A1825;
+    padding: 0;
+    overflow: hidden;
+}
+
+#crossy-screen.hidden {
+    display: none !important;
+}
+
+#crossy-canvas {
+    width: 100%;
+    max-width: 400px;
+    flex: 1;
+    min-height: 0;
+    touch-action: none;
+    -webkit-touch-callout: none;
+}
+
 /* ===== JUMPING BEAN ===== */
 #jump-screen {
     display: flex;

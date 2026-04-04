@@ -2229,6 +2229,1175 @@ function triggerJamShow() {
     saveGame();
 }
 
+// ---- ANGRY BEANS (Bean Launch) ----
+const launchCanvas = $('launch-canvas');
+let launchCtx = launchCanvas.getContext('2d');
+let LW = launchCanvas.width;
+let LH = launchCanvas.height;
+let launchRAF = null;
+
+const GRAVITY = 0.25;
+const GROUND_Y_RATIO = 0.85;
+const SLING_X = 80;
+
+let launch = {
+    phase: 'aiming', // aiming, flying, settling, done, idle
+    level: 0,
+    beansLeft: 3,
+    score: 0,
+    bestScore: 0,
+    totalCoins: 0,
+    // Slingshot
+    slingY: 0,
+    pulling: false,
+    pullX: 0,
+    pullY: 0,
+    // Projectile bean
+    beanX: 0, beanY: 0, beanVX: 0, beanVY: 0, beanR: 10, beanActive: false,
+    trail: [],
+    // Physics objects
+    blocks: [],
+    enemies: [],
+    particles: [],
+    settleTimer: 0,
+};
+
+const BEAN_LEVELS = [
+    { // Level 1: simple stack
+        blocks: [
+            { x: 300, y: 0, w: 20, h: 50, type: 'wood' },
+            { x: 330, y: 0, w: 20, h: 50, type: 'wood' },
+            { x: 295, y: -50, w: 60, h: 12, type: 'wood' },
+        ],
+        enemies: [{ x: 315, y: -65 }],
+    },
+    { // Level 2: two towers
+        blocks: [
+            { x: 270, y: 0, w: 16, h: 60, type: 'wood' },
+            { x: 300, y: 0, w: 16, h: 60, type: 'wood' },
+            { x: 265, y: -60, w: 56, h: 12, type: 'wood' },
+            { x: 340, y: 0, w: 16, h: 40, type: 'stone' },
+            { x: 370, y: 0, w: 16, h: 40, type: 'stone' },
+            { x: 335, y: -40, w: 56, h: 12, type: 'wood' },
+        ],
+        enemies: [{ x: 285, y: -75 }, { x: 355, y: -55 }],
+    },
+    { // Level 3: fortress
+        blocks: [
+            { x: 260, y: 0, w: 20, h: 70, type: 'stone' },
+            { x: 350, y: 0, w: 20, h: 70, type: 'stone' },
+            { x: 255, y: -70, w: 120, h: 14, type: 'wood' },
+            { x: 290, y: -84, w: 16, h: 40, type: 'wood' },
+            { x: 330, y: -84, w: 16, h: 40, type: 'wood' },
+            { x: 285, y: -124, w: 66, h: 12, type: 'wood' },
+        ],
+        enemies: [{ x: 310, y: -82 }, { x: 310, y: -140 }],
+    },
+    { // Level 4: pyramid
+        blocks: [
+            { x: 260, y: 0, w: 120, h: 14, type: 'stone' },
+            { x: 275, y: -14, w: 16, h: 40, type: 'wood' },
+            { x: 345, y: -14, w: 16, h: 40, type: 'wood' },
+            { x: 270, y: -54, w: 96, h: 14, type: 'stone' },
+            { x: 300, y: -68, w: 16, h: 40, type: 'wood' },
+            { x: 295, y: -108, w: 50, h: 12, type: 'wood' },
+        ],
+        enemies: [{ x: 310, y: -30 }, { x: 320, y: -72 }, { x: 315, y: -122 }],
+    },
+    { // Level 5: the wall
+        blocks: [
+            { x: 280, y: 0, w: 80, h: 16, type: 'stone' },
+            { x: 280, y: -16, w: 80, h: 16, type: 'stone' },
+            { x: 280, y: -32, w: 80, h: 16, type: 'stone' },
+            { x: 280, y: -48, w: 80, h: 16, type: 'wood' },
+            { x: 280, y: -64, w: 80, h: 16, type: 'wood' },
+        ],
+        enemies: [{ x: 370, y: -15 }, { x: 370, y: -50 }],
+    },
+];
+
+function resizeLaunchCanvas() {
+    const screen = $('launch-screen');
+    const navH = $('nav-bar').offsetHeight || 40;
+    const titleH = $('title-bar').offsetHeight || 40;
+    const availH = window.innerHeight - navH - titleH;
+    const availW = Math.min(400, screen.offsetWidth || 400);
+    launchCanvas.width = availW;
+    launchCanvas.height = Math.min(Math.floor(availW * 0.85), availH);
+    LW = launchCanvas.width;
+    LH = launchCanvas.height;
+}
+
+function startLaunch() {
+    stopLaunch();
+    resizeLaunchCanvas();
+    const saved = localStorage.getItem('launchBest');
+    if (saved) launch.bestScore = parseInt(saved) || 0;
+    launch.level = 0;
+    launch.score = 0;
+    launch.totalCoins = 0;
+    launch.phase = 'idle';
+    loadLaunchLevel();
+    launchLoop();
+}
+
+function stopLaunch() {
+    if (launchRAF) { cancelAnimationFrame(launchRAF); launchRAF = null; }
+}
+
+function loadLaunchLevel() {
+    const groundY = LH * GROUND_Y_RATIO;
+    const lvl = BEAN_LEVELS[launch.level % BEAN_LEVELS.length];
+
+    launch.blocks = lvl.blocks.map(b => ({
+        x: b.x, y: groundY + b.y - b.h, w: b.w, h: b.h,
+        type: b.type, vx: 0, vy: 0, alive: true, settled: true,
+    }));
+
+    launch.enemies = lvl.enemies.map(e => ({
+        x: e.x, y: groundY + e.y - 14, r: 14, vx: 0, vy: 0, alive: true,
+    }));
+
+    launch.beansLeft = 3;
+    launch.slingY = groundY - 60;
+    launch.beanActive = false;
+    launch.pulling = false;
+    launch.trail = [];
+    launch.particles = [];
+    launch.settleTimer = 0;
+    launch.phase = 'aiming';
+
+    resetLaunchBean();
+}
+
+function resetLaunchBean() {
+    launch.beanX = SLING_X;
+    launch.beanY = launch.slingY;
+    launch.beanVX = 0;
+    launch.beanVY = 0;
+    launch.beanActive = false;
+    launch.trail = [];
+}
+
+function launchLoop() {
+    try {
+        launchUpdate();
+        launchDraw();
+    } catch (e) { console.error('Launch error:', e); }
+    launchRAF = requestAnimationFrame(launchLoop);
+}
+
+function launchUpdate() {
+    if (launch.phase === 'idle' || launch.phase === 'done') return;
+
+    const groundY = LH * GROUND_Y_RATIO;
+
+    if (launch.phase === 'flying' && launch.beanActive) {
+        // Projectile physics
+        launch.beanVY += GRAVITY;
+        launch.beanX += launch.beanVX;
+        launch.beanY += launch.beanVY;
+        launch.trail.push({ x: launch.beanX, y: launch.beanY });
+        if (launch.trail.length > 30) launch.trail.shift();
+
+        // Ground collision
+        if (launch.beanY > groundY - launch.beanR) {
+            launch.beanY = groundY - launch.beanR;
+            launch.beanVY = -launch.beanVY * 0.3;
+            launch.beanVX *= 0.7;
+            if (Math.abs(launch.beanVY) < 1) {
+                launch.beanActive = false;
+                launch.phase = 'settling';
+                launch.settleTimer = 60;
+            }
+        }
+
+        // Off screen
+        if (launch.beanX > LW + 30 || launch.beanX < -30) {
+            launch.beanActive = false;
+            launch.phase = 'settling';
+            launch.settleTimer = 60;
+        }
+
+        // Block collisions
+        for (const block of launch.blocks) {
+            if (!block.alive) continue;
+            if (circleRect(launch.beanX, launch.beanY, launch.beanR, block.x, block.y, block.w, block.h)) {
+                // Hit! Apply force to block
+                const force = Math.sqrt(launch.beanVX * launch.beanVX + launch.beanVY * launch.beanVY);
+                const hp = block.type === 'stone' ? 8 : 4;
+                if (force > hp) {
+                    block.alive = false;
+                    launch.score += block.type === 'stone' ? 200 : 100;
+                    // Particles
+                    for (let p = 0; p < 6; p++) {
+                        launch.particles.push({
+                            x: block.x + block.w / 2, y: block.y + block.h / 2,
+                            vx: (Math.random() - 0.5) * 6, vy: -Math.random() * 5 - 2,
+                            life: 30, color: block.type === 'stone' ? '#888' : '#A07848',
+                        });
+                    }
+                }
+                launch.beanVX *= 0.5;
+                launch.beanVY *= 0.5;
+            }
+        }
+
+        // Enemy collisions
+        for (const enemy of launch.enemies) {
+            if (!enemy.alive) continue;
+            const dx = launch.beanX - enemy.x;
+            const dy = launch.beanY - enemy.y;
+            if (Math.sqrt(dx * dx + dy * dy) < launch.beanR + enemy.r) {
+                enemy.alive = false;
+                launch.score += 500;
+                launch.totalCoins++;
+                for (let p = 0; p < 8; p++) {
+                    launch.particles.push({
+                        x: enemy.x, y: enemy.y,
+                        vx: (Math.random() - 0.5) * 8, vy: -Math.random() * 6 - 2,
+                        life: 40, color: '#CC4444',
+                    });
+                }
+            }
+        }
+    }
+
+    // Settling — check if unsupported blocks/enemies should fall
+    if (launch.phase === 'settling') {
+        // Simple gravity for unsupported enemies
+        for (const enemy of launch.enemies) {
+            if (!enemy.alive) continue;
+            let supported = false;
+            if (enemy.y + enemy.r >= groundY - 2) { supported = true; }
+            for (const block of launch.blocks) {
+                if (!block.alive) continue;
+                if (enemy.x > block.x - 5 && enemy.x < block.x + block.w + 5 &&
+                    Math.abs((enemy.y + enemy.r) - block.y) < 5) {
+                    supported = true;
+                }
+            }
+            if (!supported) {
+                enemy.vy = (enemy.vy || 0) + GRAVITY;
+                enemy.y += enemy.vy;
+                if (enemy.y > groundY + 30) {
+                    enemy.alive = false;
+                    launch.score += 500;
+                    launch.totalCoins++;
+                }
+            }
+        }
+
+        launch.settleTimer--;
+        if (launch.settleTimer <= 0) {
+            launch.beansLeft--;
+            if (launch.enemies.every(e => !e.alive)) {
+                // Level complete!
+                launch.score += launch.beansLeft * 1000;
+                launch.level++;
+                if (launch.level < BEAN_LEVELS.length) {
+                    loadLaunchLevel();
+                } else {
+                    launchGameOver();
+                }
+            } else if (launch.beansLeft <= 0) {
+                launchGameOver();
+            } else {
+                resetLaunchBean();
+                launch.phase = 'aiming';
+            }
+        }
+    }
+
+    // Particles
+    launch.particles = launch.particles.filter(p => {
+        p.x += p.vx; p.y += p.vy; p.vy += 0.2; p.life--;
+        return p.life > 0;
+    });
+}
+
+function launchGameOver() {
+    launch.phase = 'done';
+    if (launch.score > launch.bestScore) {
+        launch.bestScore = launch.score;
+        localStorage.setItem('launchBest', launch.bestScore);
+    }
+    state.coins += launch.totalCoins;
+    const funBoost = Math.min(25, Math.floor(launch.score / 500));
+    state.fun = Math.min(100, state.fun + funBoost);
+    if (launch.totalCoins > 0 || funBoost > 0) saveGame();
+}
+
+function circleRect(cx, cy, cr, rx, ry, rw, rh) {
+    const nearX = Math.max(rx, Math.min(cx, rx + rw));
+    const nearY = Math.max(ry, Math.min(cy, ry + rh));
+    const dx = cx - nearX;
+    const dy = cy - nearY;
+    return dx * dx + dy * dy < cr * cr;
+}
+
+function launchDraw() {
+    const c = launchCtx = launchCanvas.getContext('2d');
+    c.clearRect(0, 0, LW, LH);
+    const groundY = LH * GROUND_Y_RATIO;
+
+    // Sky
+    const skyGrad = c.createLinearGradient(0, 0, 0, groundY);
+    skyGrad.addColorStop(0, '#6BC4E8');
+    skyGrad.addColorStop(1, '#A8E0C0');
+    c.fillStyle = skyGrad;
+    c.fillRect(0, 0, LW, groundY);
+
+    // Ground
+    c.fillStyle = '#4A8F4A';
+    c.fillRect(0, groundY, LW, LH - groundY);
+    c.fillStyle = '#5CAF5C';
+    c.fillRect(0, groundY, LW, 4);
+
+    // Slingshot
+    c.fillStyle = '#6B4226';
+    c.fillRect(SLING_X - 3, launch.slingY - 10, 6, groundY - launch.slingY + 10);
+    // Fork
+    c.fillRect(SLING_X - 14, launch.slingY - 20, 6, 18);
+    c.fillRect(SLING_X + 8, launch.slingY - 20, 6, 18);
+
+    // Rubber band (when pulling)
+    if (launch.pulling && launch.phase === 'aiming') {
+        c.strokeStyle = '#8B4513';
+        c.lineWidth = 3;
+        c.beginPath();
+        c.moveTo(SLING_X - 11, launch.slingY - 16);
+        c.lineTo(launch.pullX, launch.pullY);
+        c.lineTo(SLING_X + 11, launch.slingY - 16);
+        c.stroke();
+    } else if (launch.phase === 'aiming') {
+        c.strokeStyle = '#8B4513';
+        c.lineWidth = 3;
+        c.beginPath();
+        c.moveTo(SLING_X - 11, launch.slingY - 16);
+        c.lineTo(SLING_X, launch.slingY);
+        c.lineTo(SLING_X + 11, launch.slingY - 16);
+        c.stroke();
+    }
+
+    // Trail
+    launch.trail.forEach((t, i) => {
+        const alpha = i / launch.trail.length * 0.3;
+        c.fillStyle = `rgba(139,107,74,${alpha})`;
+        c.beginPath();
+        c.arc(t.x, t.y, 3, 0, Math.PI * 2);
+        c.fill();
+    });
+
+    // Blocks
+    for (const block of launch.blocks) {
+        if (!block.alive) continue;
+        if (block.type === 'wood') {
+            c.fillStyle = '#A07848';
+            c.fillRect(block.x, block.y, block.w, block.h);
+            c.fillStyle = '#B88B58';
+            c.fillRect(block.x, block.y, block.w, 3);
+            c.strokeStyle = '#7A5830';
+            c.lineWidth = 1;
+            c.strokeRect(block.x, block.y, block.w, block.h);
+        } else {
+            c.fillStyle = '#888';
+            c.fillRect(block.x, block.y, block.w, block.h);
+            c.fillStyle = '#999';
+            c.fillRect(block.x, block.y, block.w, 3);
+            c.strokeStyle = '#666';
+            c.lineWidth = 1;
+            c.strokeRect(block.x, block.y, block.w, block.h);
+        }
+    }
+
+    // Enemy beans (red/green bad beans)
+    for (const enemy of launch.enemies) {
+        if (!enemy.alive) continue;
+        c.fillStyle = '#44AA44';
+        c.beginPath();
+        c.ellipse(enemy.x, enemy.y, enemy.r, enemy.r * 1.1, 0, 0, Math.PI * 2);
+        c.fill();
+        c.strokeStyle = '#2D7D2D';
+        c.lineWidth = 2;
+        c.stroke();
+        // Evil face
+        c.fillStyle = '#1A4A1A';
+        c.beginPath();
+        c.arc(enemy.x - 4, enemy.y - 3, 2, 0, Math.PI * 2);
+        c.arc(enemy.x + 4, enemy.y - 3, 2, 0, Math.PI * 2);
+        c.fill();
+        // Evil eyebrows
+        c.strokeStyle = '#1A4A1A';
+        c.lineWidth = 1.5;
+        c.beginPath();
+        c.moveTo(enemy.x - 7, enemy.y - 7);
+        c.lineTo(enemy.x - 2, enemy.y - 5);
+        c.moveTo(enemy.x + 7, enemy.y - 7);
+        c.lineTo(enemy.x + 2, enemy.y - 5);
+        c.stroke();
+        // Frown
+        c.beginPath();
+        c.arc(enemy.x, enemy.y + 6, 3, Math.PI + 0.3, -0.3);
+        c.stroke();
+    }
+
+    // Projectile bean (or aiming bean)
+    if (launch.phase === 'aiming' || launch.beanActive) {
+        const bx = launch.pulling ? launch.pullX : launch.beanX;
+        const by = launch.pulling ? launch.pullY : launch.beanY;
+        c.fillStyle = '#8B6B4A';
+        c.beginPath();
+        c.ellipse(bx, by, launch.beanR, launch.beanR * 1.1, 0, 0, Math.PI * 2);
+        c.fill();
+        c.fillStyle = 'rgba(255,255,255,0.15)';
+        c.beginPath();
+        c.ellipse(bx - 3, by - 4, 4, 5, -0.3, 0, Math.PI * 2);
+        c.fill();
+        c.strokeStyle = '#5C4530';
+        c.lineWidth = 2;
+        c.beginPath();
+        c.ellipse(bx, by, launch.beanR, launch.beanR * 1.1, 0, 0, Math.PI * 2);
+        c.stroke();
+        // Face
+        c.fillStyle = '#3D2B1A';
+        c.beginPath();
+        c.arc(bx - 3, by - 3, 1.5, 0, Math.PI * 2);
+        c.arc(bx + 3, by - 3, 1.5, 0, Math.PI * 2);
+        c.fill();
+        c.strokeStyle = '#3D2B1A';
+        c.lineWidth = 1;
+        c.beginPath();
+        c.arc(bx, by + 1, 2.5, 0.2, Math.PI - 0.2);
+        c.stroke();
+    }
+
+    // Particles
+    for (const p of launch.particles) {
+        c.fillStyle = p.color;
+        c.globalAlpha = p.life / 40;
+        c.fillRect(p.x - 3, p.y - 3, 6, 6);
+        c.globalAlpha = 1;
+    }
+
+    // Beans left indicator
+    for (let i = 0; i < launch.beansLeft; i++) {
+        c.fillStyle = '#8B6B4A';
+        c.beginPath();
+        c.arc(20 + i * 22, LH - 15, 7, 0, Math.PI * 2);
+        c.fill();
+        c.strokeStyle = '#5C4530';
+        c.lineWidth = 1;
+        c.stroke();
+    }
+
+    // Level + Score HUD
+    c.fillStyle = 'rgba(0,0,0,0.3)';
+    c.fillRect(0, 0, LW, 24);
+    c.fillStyle = '#F5E6D0';
+    c.font = '9px "Press Start 2P", monospace';
+    c.textAlign = 'left';
+    c.textBaseline = 'top';
+    c.fillText('Lvl ' + (launch.level + 1), 8, 6);
+    c.fillStyle = '#F0C674';
+    c.textAlign = 'right';
+    c.fillText('★ ' + launch.score, LW - 8, 6);
+
+    // Idle screen
+    if (launch.phase === 'idle') {
+        c.fillStyle = 'rgba(0,0,0,0.55)';
+        c.fillRect(0, 0, LW, LH);
+        c.fillStyle = '#8B6B4A';
+        c.font = '14px "Press Start 2P", monospace';
+        c.textAlign = 'center';
+        c.textBaseline = 'middle';
+        c.fillText('ANGRY BEANS', LW / 2, LH * 0.3);
+        c.fillStyle = '#F0C674';
+        c.font = '7px "Press Start 2P", monospace';
+        c.fillText('Pull back & launch!', LW / 2, LH * 0.4);
+        const blink = Math.sin(performance.now() * 0.004) > 0;
+        if (blink) {
+            c.fillStyle = '#F5E6D0';
+            c.font = '9px "Press Start 2P", monospace';
+            c.fillText('TAP TO START', LW / 2, LH * 0.53);
+        }
+        if (launch.bestScore > 0) {
+            c.fillStyle = 'rgba(255,255,255,0.4)';
+            c.font = '8px "Press Start 2P", monospace';
+            c.fillText('Best: ' + launch.bestScore, LW / 2, LH * 0.62);
+        }
+    }
+
+    // Done screen
+    if (launch.phase === 'done') {
+        c.fillStyle = 'rgba(0,0,0,0.6)';
+        c.fillRect(0, 0, LW, LH);
+        const allDead = launch.enemies.every(e => !e.alive);
+        c.fillStyle = allDead ? '#6FCF97' : '#E87D5F';
+        c.font = '13px "Press Start 2P", monospace';
+        c.textAlign = 'center';
+        c.textBaseline = 'middle';
+        c.fillText(allDead ? 'ALL BEANS DOWN!' : 'OUT OF BEANS!', LW / 2, LH * 0.25);
+        c.fillStyle = '#F5E6D0';
+        c.font = '10px "Press Start 2P", monospace';
+        c.fillText('Score: ' + launch.score, LW / 2, LH * 0.38);
+        c.fillStyle = 'rgba(255,255,255,0.4)';
+        c.fillText('Best: ' + launch.bestScore, LW / 2, LH * 0.46);
+        c.fillStyle = '#F0C674';
+        c.font = '9px "Press Start 2P", monospace';
+        c.fillText('+' + launch.totalCoins + ' coins', LW / 2, LH * 0.56);
+        c.fillText('Cleared ' + launch.level + '/' + BEAN_LEVELS.length + ' levels', LW / 2, LH * 0.65);
+        const blink = Math.sin(performance.now() * 0.005) > 0;
+        if (blink) {
+            c.fillStyle = '#F5E6D0';
+            c.font = '8px "Press Start 2P", monospace';
+            c.fillText('TAP TO PLAY AGAIN', LW / 2, LH * 0.78);
+        }
+    }
+}
+
+// Launch input
+function onLaunchDown(e) {
+    if (currentScreen !== 'launch') return;
+    e.preventDefault();
+    if (launch.phase === 'idle') {
+        launch.phase = 'aiming';
+        loadLaunchLevel();
+        return;
+    }
+    if (launch.phase === 'done') {
+        launch.level = 0;
+        launch.score = 0;
+        launch.totalCoins = 0;
+        launch.phase = 'aiming';
+        loadLaunchLevel();
+        return;
+    }
+    if (launch.phase !== 'aiming') return;
+
+    const rect = launchCanvas.getBoundingClientRect();
+    const sx = launchCanvas.width / rect.width;
+    const sy = launchCanvas.height / rect.height;
+    const clientX = e.clientX ?? e.touches?.[0]?.clientX ?? 0;
+    const clientY = e.clientY ?? e.touches?.[0]?.clientY ?? 0;
+    const x = (clientX - rect.left) * sx;
+    const y = (clientY - rect.top) * sy;
+
+    // Only start pull if near the slingshot
+    if (Math.abs(x - SLING_X) < 50 && Math.abs(y - launch.slingY) < 50) {
+        launch.pulling = true;
+        launch.pullX = x;
+        launch.pullY = y;
+    }
+}
+
+function onLaunchMove(e) {
+    if (currentScreen !== 'launch' || !launch.pulling) return;
+    e.preventDefault();
+    const rect = launchCanvas.getBoundingClientRect();
+    const sx = launchCanvas.width / rect.width;
+    const sy = launchCanvas.height / rect.height;
+    const clientX = e.clientX ?? e.touches?.[0]?.clientX ?? 0;
+    const clientY = e.clientY ?? e.touches?.[0]?.clientY ?? 0;
+    let x = (clientX - rect.left) * sx;
+    let y = (clientY - rect.top) * sy;
+
+    // Limit pull distance
+    const dx = x - SLING_X;
+    const dy = y - launch.slingY;
+    const dist = Math.sqrt(dx * dx + dy * dy);
+    const maxPull = 70;
+    if (dist > maxPull) {
+        x = SLING_X + dx / dist * maxPull;
+        y = launch.slingY + dy / dist * maxPull;
+    }
+    launch.pullX = x;
+    launch.pullY = y;
+}
+
+function onLaunchUp(e) {
+    if (currentScreen !== 'launch' || !launch.pulling) return;
+    e.preventDefault();
+    launch.pulling = false;
+
+    // Calculate launch velocity (opposite of pull direction)
+    const dx = SLING_X - launch.pullX;
+    const dy = launch.slingY - launch.pullY;
+    const power = 0.15;
+    launch.beanX = launch.pullX;
+    launch.beanY = launch.pullY;
+    launch.beanVX = dx * power;
+    launch.beanVY = dy * power;
+    launch.beanActive = true;
+    launch.trail = [];
+    launch.phase = 'flying';
+}
+
+// ---- CROSSY BEAN ----
+const crossyCanvas = $('crossy-canvas');
+let crossyCtx = crossyCanvas.getContext('2d');
+let CW = crossyCanvas.width;
+let CH = crossyCanvas.height;
+
+let crossyRAF = null;
+const CROSSY_TILE = 40;
+
+// Row types: grass (safe), road (cars), river (logs), rail (trains)
+let crossy = {
+    phase: 'idle',
+    beanCol: 0,
+    beanRow: 0,
+    targetCol: 0,
+    targetRow: 0,
+    moveAnim: 0,
+    cameraRow: 0,
+    score: 0,
+    bestScore: 0,
+    coinsCollected: 0,
+    rows: [],  // { type, items[], speed, y }
+    coins: [],
+    deadTimer: 0,
+};
+
+function resizeCrossyCanvas() {
+    const screen = $('crossy-screen');
+    const navH = $('nav-bar').offsetHeight || 40;
+    const titleH = $('title-bar').offsetHeight || 40;
+    const availH = window.innerHeight - navH - titleH;
+    const availW = Math.min(400, screen.offsetWidth || 400);
+    let cw = availW;
+    let ch = Math.min(Math.floor(cw * 1.3), availH);
+    crossyCanvas.width = cw;
+    crossyCanvas.height = ch;
+    CW = cw;
+    CH = ch;
+}
+
+function startCrossy() {
+    stopCrossy();
+    resizeCrossyCanvas();
+    const saved = localStorage.getItem('crossyBest');
+    if (saved) crossy.bestScore = parseInt(saved) || 0;
+    resetCrossy();
+    crossyLoop();
+}
+
+function stopCrossy() {
+    if (crossyRAF) { cancelAnimationFrame(crossyRAF); crossyRAF = null; }
+}
+
+function resetCrossy() {
+    crossy.phase = 'idle';
+    crossy.beanCol = Math.floor(CW / CROSSY_TILE / 2);
+    crossy.beanRow = 0;
+    crossy.targetCol = crossy.beanCol;
+    crossy.targetRow = 0;
+    crossy.moveAnim = 0;
+    crossy.cameraRow = 0;
+    crossy.score = 0;
+    crossy.coinsCollected = 0;
+    crossy.coins = [];
+    crossy.rows = [];
+
+    // Generate initial rows
+    crossy.rows.push({ type: 'grass', items: [], speed: 0 }); // starting row
+    for (let i = 1; i < 30; i++) {
+        crossy.rows.push(generateCrossyRow(i));
+    }
+
+    // Scatter some coins
+    for (let i = 2; i < 25; i += 3) {
+        if (Math.random() < 0.4) {
+            crossy.coins.push({
+                row: i,
+                col: Math.floor(Math.random() * Math.floor(CW / CROSSY_TILE)),
+                collected: false,
+            });
+        }
+    }
+}
+
+function generateCrossyRow(rowIndex) {
+    const r = Math.random();
+    const cols = Math.floor(CW / CROSSY_TILE);
+
+    if (r < 0.35) {
+        // Grass (safe)
+        const trees = [];
+        for (let c = 0; c < cols; c++) {
+            if (Math.random() < 0.2) trees.push(c);
+        }
+        return { type: 'grass', items: trees, speed: 0 };
+    } else if (r < 0.75) {
+        // Road with cars
+        const speed = (Math.random() < 0.5 ? 1 : -1) * (1 + Math.random() * 2);
+        const cars = [];
+        let x = Math.random() * CW;
+        const numCars = 2 + Math.floor(Math.random() * 2);
+        for (let c = 0; c < numCars; c++) {
+            const carW = 30 + Math.random() * 20;
+            cars.push({ x, w: carW, color: ['#CC4444', '#4488CC', '#E8C840', '#44AA44', '#AA44AA'][Math.floor(Math.random() * 5)] });
+            x += carW + 40 + Math.random() * 60;
+        }
+        return { type: 'road', items: cars, speed };
+    } else {
+        // River with logs
+        const speed = (Math.random() < 0.5 ? 1 : -1) * (0.8 + Math.random() * 1.5);
+        const logs = [];
+        let x = Math.random() * CW;
+        const numLogs = 2 + Math.floor(Math.random() * 2);
+        for (let l = 0; l < numLogs; l++) {
+            const logW = 50 + Math.random() * 40;
+            logs.push({ x, w: logW });
+            x += logW + 30 + Math.random() * 50;
+        }
+        return { type: 'river', items: logs, speed };
+    }
+}
+
+function crossyLoop() {
+    try {
+        crossyUpdate();
+        crossyDraw();
+    } catch (e) { console.error('Crossy error:', e); }
+    crossyRAF = requestAnimationFrame(crossyLoop);
+}
+
+function crossyUpdate() {
+    if (crossy.phase === 'dead') {
+        crossy.deadTimer++;
+        return;
+    }
+    if (crossy.phase !== 'playing') return;
+
+    // Animate bean movement
+    if (crossy.moveAnim > 0) {
+        crossy.moveAnim--;
+        if (crossy.moveAnim === 0) {
+            crossy.beanCol = crossy.targetCol;
+            crossy.beanRow = crossy.targetRow;
+        }
+    }
+
+    // Update camera
+    const targetCam = crossy.beanRow - Math.floor(CH / CROSSY_TILE * 0.4);
+    if (targetCam > crossy.cameraRow) crossy.cameraRow = targetCam;
+
+    // Update score
+    if (crossy.beanRow > crossy.score) crossy.score = crossy.beanRow;
+
+    // Move cars and logs
+    crossy.rows.forEach(row => {
+        if (row.type === 'road' || row.type === 'river') {
+            row.items.forEach(item => {
+                item.x += row.speed;
+                // Wrap around
+                if (row.speed > 0 && item.x > CW + 20) item.x = -item.w - 20;
+                if (row.speed < 0 && item.x + item.w < -20) item.x = CW + 20;
+            });
+        }
+    });
+
+    // Generate more rows ahead
+    while (crossy.rows.length < crossy.beanRow + 30) {
+        crossy.rows.push(generateCrossyRow(crossy.rows.length));
+        // Maybe add coin
+        if (Math.random() < 0.3) {
+            crossy.coins.push({
+                row: crossy.rows.length - 1,
+                col: Math.floor(Math.random() * Math.floor(CW / CROSSY_TILE)),
+                collected: false,
+            });
+        }
+    }
+
+    // Check collisions
+    if (crossy.moveAnim === 0) {
+        const row = crossy.rows[crossy.beanRow];
+        const beanX = crossy.beanCol * CROSSY_TILE + CROSSY_TILE / 2;
+
+        if (row && row.type === 'road') {
+            // Car collision
+            for (const car of row.items) {
+                if (beanX > car.x - 4 && beanX < car.x + car.w + 4) {
+                    crossyDie();
+                    return;
+                }
+            }
+        }
+
+        if (row && row.type === 'river') {
+            // Must be on a log
+            let onLog = false;
+            for (const log of row.items) {
+                if (beanX > log.x - 2 && beanX < log.x + log.w + 2) {
+                    onLog = true;
+                    // Move with log
+                    crossy.beanCol += row.speed / CROSSY_TILE * 0.5;
+                    crossy.targetCol = crossy.beanCol;
+                }
+            }
+            if (!onLog) {
+                crossyDie();
+                return;
+            }
+        }
+
+        if (row && row.type === 'grass') {
+            // Tree collision — check if target is a tree
+            if (row.items.includes(crossy.beanCol)) {
+                // Shouldn't happen since we block the move, but safety
+            }
+        }
+
+        // Coin collection
+        for (const c of crossy.coins) {
+            if (!c.collected && c.row === crossy.beanRow && Math.abs(c.col - crossy.beanCol) < 1) {
+                c.collected = true;
+                crossy.coinsCollected++;
+            }
+        }
+
+        // Off screen left/right
+        if (crossy.beanCol < -1 || crossy.beanCol > CW / CROSSY_TILE) {
+            crossyDie();
+        }
+    }
+}
+
+function crossyMove(dx, dy) {
+    if (crossy.phase === 'idle') {
+        crossy.phase = 'playing';
+    }
+    if (crossy.phase !== 'playing' || crossy.moveAnim > 0) return;
+
+    const newCol = Math.round(crossy.beanCol) + dx;
+    const newRow = crossy.beanRow + dy;
+    if (newCol < 0 || newCol >= Math.floor(CW / CROSSY_TILE)) return;
+    if (newRow < 0) return;
+
+    // Check tree collision
+    const targetRow = crossy.rows[newRow];
+    if (targetRow && targetRow.type === 'grass' && targetRow.items.includes(newCol)) return;
+
+    crossy.targetCol = newCol;
+    crossy.targetRow = newRow;
+    crossy.moveAnim = 6;
+}
+
+function crossyDie() {
+    crossy.phase = 'dead';
+    crossy.deadTimer = 0;
+    if (crossy.score > crossy.bestScore) {
+        crossy.bestScore = crossy.score;
+        localStorage.setItem('crossyBest', crossy.bestScore);
+    }
+    state.coins += crossy.coinsCollected;
+    const funBoost = Math.min(25, Math.floor(crossy.score / 3));
+    state.fun = Math.min(100, state.fun + funBoost);
+    if (crossy.coinsCollected > 0 || funBoost > 0) saveGame();
+}
+
+function crossyDraw() {
+    crossyCtx = crossyCanvas.getContext('2d');
+    crossyCtx.clearRect(0, 0, CW, CH);
+    const c = crossyCtx;
+    const T = CROSSY_TILE;
+    const cols = Math.floor(CW / T);
+
+    // Draw visible rows
+    const startRow = Math.max(0, crossy.cameraRow - 2);
+    const endRow = crossy.cameraRow + Math.ceil(CH / T) + 2;
+
+    for (let r = startRow; r < endRow && r < crossy.rows.length; r++) {
+        const row = crossy.rows[r];
+        const screenY = CH - (r - crossy.cameraRow) * T - T;
+
+        if (row.type === 'grass') {
+            // Green grass
+            c.fillStyle = r % 2 === 0 ? '#4A8F4A' : '#3D7D3D';
+            c.fillRect(0, screenY, CW, T);
+
+            // Trees as obstacles
+            for (const treeCol of row.items) {
+                const tx = treeCol * T + T / 2;
+                // Trunk
+                c.fillStyle = '#6B4226';
+                c.fillRect(tx - 3, screenY + 8, 6, T - 8);
+                // Canopy
+                c.fillStyle = '#2D7D2D';
+                c.beginPath();
+                c.arc(tx, screenY + 8, 12, 0, Math.PI * 2);
+                c.fill();
+                c.fillStyle = '#3D9D3D';
+                c.beginPath();
+                c.arc(tx - 4, screenY + 4, 8, 0, Math.PI * 2);
+                c.fill();
+            }
+        } else if (row.type === 'road') {
+            // Dark road
+            c.fillStyle = '#3A3A3A';
+            c.fillRect(0, screenY, CW, T);
+            // Road lines
+            c.strokeStyle = '#5A5A5A';
+            c.lineWidth = 1;
+            c.setLineDash([8, 8]);
+            c.beginPath();
+            c.moveTo(0, screenY + T / 2);
+            c.lineTo(CW, screenY + T / 2);
+            c.stroke();
+            c.setLineDash([]);
+
+            // Cars
+            for (const car of row.items) {
+                const cy = screenY + 6;
+                const ch2 = T - 12;
+                // Body
+                c.fillStyle = car.color;
+                c.fillRect(car.x, cy, car.w, ch2);
+                // Roof
+                c.fillStyle = 'rgba(0,0,0,0.15)';
+                c.fillRect(car.x + car.w * 0.25, cy, car.w * 0.5, ch2 * 0.6);
+                // Wheels
+                c.fillStyle = '#222';
+                c.beginPath();
+                c.arc(car.x + 8, cy + ch2, 4, 0, Math.PI * 2);
+                c.arc(car.x + car.w - 8, cy + ch2, 4, 0, Math.PI * 2);
+                c.fill();
+                // Headlights
+                c.fillStyle = '#F0E880';
+                if (row.speed > 0) {
+                    c.fillRect(car.x + car.w - 2, cy + 4, 3, 4);
+                    c.fillRect(car.x + car.w - 2, cy + ch2 - 8, 3, 4);
+                } else {
+                    c.fillRect(car.x - 1, cy + 4, 3, 4);
+                    c.fillRect(car.x - 1, cy + ch2 - 8, 3, 4);
+                }
+            }
+        } else if (row.type === 'river') {
+            // Blue water
+            c.fillStyle = '#3A7AC0';
+            c.fillRect(0, screenY, CW, T);
+            // Ripples
+            c.strokeStyle = 'rgba(255,255,255,0.15)';
+            c.lineWidth = 1;
+            for (let rx = 0; rx < CW; rx += 20) {
+                c.beginPath();
+                c.arc(rx + (r * 7 % 10), screenY + T / 2, 6, 0, Math.PI);
+                c.stroke();
+            }
+
+            // Logs
+            for (const log of row.items) {
+                c.fillStyle = '#8B6538';
+                c.fillRect(log.x, screenY + 6, log.w, T - 12);
+                c.fillStyle = '#A07848';
+                c.fillRect(log.x, screenY + 6, log.w, 4);
+                // Wood rings
+                c.fillStyle = '#6B4F2E';
+                c.beginPath();
+                c.arc(log.x + 4, screenY + T / 2, 5, 0, Math.PI * 2);
+                c.fill();
+                c.beginPath();
+                c.arc(log.x + log.w - 4, screenY + T / 2, 5, 0, Math.PI * 2);
+                c.fill();
+            }
+        }
+    }
+
+    // Coins
+    for (const coin of crossy.coins) {
+        if (coin.collected) continue;
+        const cy = CH - (coin.row - crossy.cameraRow) * T - T / 2;
+        const cx = coin.col * T + T / 2;
+        if (cy < -20 || cy > CH + 20) continue;
+        c.fillStyle = '#F0C674';
+        c.beginPath();
+        c.arc(cx, cy, 7, 0, Math.PI * 2);
+        c.fill();
+        c.strokeStyle = '#C4A043';
+        c.lineWidth = 1.5;
+        c.stroke();
+        c.fillStyle = '#C4A043';
+        c.font = '6px sans-serif';
+        c.textAlign = 'center';
+        c.textBaseline = 'middle';
+        c.fillText('★', cx, cy + 1);
+    }
+
+    // Bean
+    const beanDrawCol = crossy.moveAnim > 0
+        ? crossy.beanCol + (crossy.targetCol - crossy.beanCol) * (1 - crossy.moveAnim / 6)
+        : crossy.beanCol;
+    const beanDrawRow = crossy.moveAnim > 0
+        ? crossy.beanRow + (crossy.targetRow - crossy.beanRow) * (1 - crossy.moveAnim / 6)
+        : crossy.beanRow;
+    const bx = beanDrawCol * T + T / 2;
+    const by = CH - (beanDrawRow - crossy.cameraRow) * T - T / 2;
+
+    // Shadow
+    c.fillStyle = 'rgba(0,0,0,0.15)';
+    c.beginPath();
+    c.ellipse(bx, by + 10, 10, 4, 0, 0, Math.PI * 2);
+    c.fill();
+    // Body
+    c.fillStyle = '#8B6B4A';
+    c.beginPath();
+    c.ellipse(bx, by - 2, 12, 14, 0, 0, Math.PI * 2);
+    c.fill();
+    // Highlight
+    c.fillStyle = 'rgba(255,255,255,0.15)';
+    c.beginPath();
+    c.ellipse(bx - 3, by - 7, 4, 7, -0.3, 0, Math.PI * 2);
+    c.fill();
+    // Outline
+    c.strokeStyle = '#5C4530';
+    c.lineWidth = 2;
+    c.beginPath();
+    c.ellipse(bx, by - 2, 12, 14, 0, 0, Math.PI * 2);
+    c.stroke();
+    // Eyes
+    c.fillStyle = '#3D2B1A';
+    c.beginPath();
+    c.arc(bx - 4, by - 6, 2, 0, Math.PI * 2);
+    c.arc(bx + 4, by - 6, 2, 0, Math.PI * 2);
+    c.fill();
+    c.fillStyle = 'white';
+    c.beginPath();
+    c.arc(bx - 3, by - 7, 0.8, 0, Math.PI * 2);
+    c.arc(bx + 5, by - 7, 0.8, 0, Math.PI * 2);
+    c.fill();
+    // Mouth
+    c.strokeStyle = '#3D2B1A';
+    c.lineWidth = 1.5;
+    c.beginPath();
+    c.arc(bx, by, 3, 0.2, Math.PI - 0.2);
+    c.stroke();
+
+    // HUD
+    c.fillStyle = 'rgba(0,0,0,0.35)';
+    c.fillRect(0, 0, CW, 26);
+    c.fillStyle = '#F5E6D0';
+    c.font = '11px "Press Start 2P", monospace';
+    c.textAlign = 'left';
+    c.textBaseline = 'top';
+    c.fillText('↑ ' + crossy.score, 8, 6);
+    c.fillStyle = '#F0C674';
+    c.textAlign = 'right';
+    c.fillText('★ ' + crossy.coinsCollected, CW - 8, 6);
+
+    // Idle screen
+    if (crossy.phase === 'idle') {
+        c.fillStyle = 'rgba(0,0,0,0.55)';
+        c.fillRect(0, 0, CW, CH);
+        c.fillStyle = '#8B6B4A';
+        c.font = '14px "Press Start 2P", monospace';
+        c.textAlign = 'center';
+        c.textBaseline = 'middle';
+        c.fillText('CROSSY BEAN', CW / 2, CH * 0.3);
+        c.fillStyle = '#F0C674';
+        c.font = '7px "Press Start 2P", monospace';
+        c.fillText('Swipe or tap to cross!', CW / 2, CH * 0.4);
+        const blink = Math.sin(performance.now() * 0.004) > 0;
+        if (blink) {
+            c.fillStyle = '#F5E6D0';
+            c.font = '9px "Press Start 2P", monospace';
+            c.fillText('TAP TO START', CW / 2, CH * 0.53);
+        }
+        if (crossy.bestScore > 0) {
+            c.fillStyle = 'rgba(255,255,255,0.4)';
+            c.font = '8px "Press Start 2P", monospace';
+            c.fillText('Best: ' + crossy.bestScore, CW / 2, CH * 0.62);
+        }
+    }
+
+    // Dead screen
+    if (crossy.phase === 'dead' && crossy.deadTimer > 15) {
+        c.fillStyle = 'rgba(0,0,0,0.6)';
+        c.fillRect(0, 0, CW, CH);
+        c.fillStyle = '#E87D5F';
+        c.font = '14px "Press Start 2P", monospace';
+        c.textAlign = 'center';
+        c.textBaseline = 'middle';
+        c.fillText(state.beanName ? state.beanName + ' got squished!' : 'SPLAT!', CW / 2, CH * 0.28);
+        c.fillStyle = '#F5E6D0';
+        c.font = '10px "Press Start 2P", monospace';
+        c.fillText('Distance: ' + crossy.score, CW / 2, CH * 0.4);
+        c.fillStyle = 'rgba(255,255,255,0.4)';
+        c.fillText('Best: ' + crossy.bestScore, CW / 2, CH * 0.48);
+        c.fillStyle = '#F0C674';
+        c.font = '9px "Press Start 2P", monospace';
+        c.fillText('+' + crossy.coinsCollected + ' coins', CW / 2, CH * 0.58);
+        const blink = Math.sin(performance.now() * 0.005) > 0;
+        if (blink) {
+            c.fillStyle = '#F5E6D0';
+            c.font = '8px "Press Start 2P", monospace';
+            c.fillText('TAP TO RETRY', CW / 2, CH * 0.7);
+        }
+    }
+}
+
+// Crossy input
+let crossyTouchStart = null;
+
+function onCrossyInput(e) {
+    if (currentScreen !== 'crossy') return;
+    e.preventDefault();
+    if (crossy.phase === 'idle') {
+        crossyMove(0, 1);
+        return;
+    }
+    if (crossy.phase === 'dead' && crossy.deadTimer > 20) {
+        resetCrossy();
+        crossyMove(0, 1);
+        return;
+    }
+}
+
+function onCrossyTouchStart(e) {
+    if (currentScreen !== 'crossy') return;
+    if (crossy.phase !== 'playing') { onCrossyInput(e); return; }
+    e.preventDefault();
+    crossyTouchStart = { x: e.touches[0].clientX, y: e.touches[0].clientY };
+}
+
+function onCrossyTouchEnd(e) {
+    if (currentScreen !== 'crossy' || !crossyTouchStart) return;
+    if (crossy.phase !== 'playing') return;
+    e.preventDefault();
+    const dx = e.changedTouches[0].clientX - crossyTouchStart.x;
+    const dy = e.changedTouches[0].clientY - crossyTouchStart.y;
+    crossyTouchStart = null;
+
+    if (Math.abs(dx) < 10 && Math.abs(dy) < 10) {
+        // Tap = move forward
+        crossyMove(0, 1);
+    } else if (Math.abs(dx) > Math.abs(dy)) {
+        crossyMove(dx > 0 ? 1 : -1, 0);
+    } else {
+        crossyMove(0, dy < 0 ? 1 : -1);
+    }
+}
+
+function onCrossyKeyDown(e) {
+    if (currentScreen !== 'crossy') return;
+    if (crossy.phase === 'idle' || (crossy.phase === 'dead' && crossy.deadTimer > 20)) {
+        if (e.code === 'Space' || e.code.startsWith('Arrow') || e.code.startsWith('Key')) {
+            e.preventDefault();
+            if (crossy.phase === 'dead') resetCrossy();
+            crossyMove(0, 1);
+        }
+        return;
+    }
+    if (crossy.phase !== 'playing') return;
+    switch (e.code) {
+        case 'ArrowUp': case 'KeyW': crossyMove(0, 1); e.preventDefault(); break;
+        case 'ArrowDown': case 'KeyS': crossyMove(0, -1); e.preventDefault(); break;
+        case 'ArrowLeft': case 'KeyA': crossyMove(-1, 0); e.preventDefault(); break;
+        case 'ArrowRight': case 'KeyD': crossyMove(1, 0); e.preventDefault(); break;
+    }
+}
+
 // ---- JUMPING BEAN ----
 const jumpCanvas = $('jump-canvas');
 let jumpCtx = jumpCanvas.getContext('2d');
@@ -5002,6 +6171,8 @@ function switchScreen(screen) {
         $('flappy-screen').classList.toggle('hidden', screen !== 'flappy');
         $('snake-screen').classList.toggle('hidden', screen !== 'snake');
         $('jump-screen').classList.toggle('hidden', screen !== 'jump');
+        $('crossy-screen').classList.toggle('hidden', screen !== 'crossy');
+        $('launch-screen').classList.toggle('hidden', screen !== 'launch');
         $('beats-screen').classList.toggle('hidden', screen !== 'beats');
         $('decorate-bar').classList.add('hidden');
     }
@@ -5019,6 +6190,10 @@ function switchScreen(screen) {
     if (screen !== 'snake') stopSnake();
     if (screen === 'jump') startJump();
     if (screen !== 'jump') stopJump();
+    if (screen === 'crossy') startCrossy();
+    if (screen !== 'crossy') stopCrossy();
+    if (screen === 'launch') startLaunch();
+    if (screen !== 'launch') stopLaunch();
     if (screen === 'beats') startBeats();
     if (screen !== 'beats') stopBeats();
 }
@@ -5087,6 +6262,17 @@ function init() {
             flapJump();
         }
     });
+
+    // Angry Beans (Launch) input
+    launchCanvas.addEventListener('pointerdown', onLaunchDown);
+    window.addEventListener('pointermove', onLaunchMove, { passive: false });
+    window.addEventListener('pointerup', onLaunchUp);
+
+    // Crossy Bean input
+    crossyCanvas.addEventListener('click', onCrossyInput);
+    crossyCanvas.addEventListener('touchstart', onCrossyTouchStart, { passive: false });
+    crossyCanvas.addEventListener('touchend', onCrossyTouchEnd, { passive: false });
+    document.addEventListener('keydown', onCrossyKeyDown);
 
     // Jumping Bean input
     jumpCanvas.addEventListener('click', onJumpInput);
